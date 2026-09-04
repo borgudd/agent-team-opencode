@@ -80,7 +80,7 @@ for r in "architect|Architect (Fable 5.1)" "coder|Coder (Opus 5)" "reviewer|Revi
 done
 
 # launcher
-sed -e "s|{{URL}}|$URL|g" -e "s|{{DEFAULT}}|$DEFAULT|g" "$SKILL_DIR/workspace/team" > "$WS/team"
+cp "$SKILL_DIR/workspace/team.shim" "$WS/team"
 chmod +x "$WS/team"
 
 echo

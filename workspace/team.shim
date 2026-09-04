@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# agent-team workspace launcher — the logic lives in the pinned team submodule and upgrades with it.
+export AGENT_TEAM_WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$AGENT_TEAM_WS/po/.claude/skills/agent-team/workspace/team" "$@"

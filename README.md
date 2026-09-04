@@ -14,18 +14,19 @@ One command, from nothing to a running workspace:
 curl -sL https://raw.githubusercontent.com/fltman/agent-team/main/new-project.sh | bash -s -- myproj
 ```
 
-It creates the GitHub repo if needed (private by default, `--public` to change), makes `./myproj-team/`, clones `po/`, pins the newest tagged team version as a submodule, scaffolds, pushes, clones `architect/`, `coder/`, `reviewer/` and writes `./team`. From a clone of this repo, `./new-project.sh myproj` does the same. Then:
+It creates the GitHub repo if needed (private by default, `--public` to change), makes `./myproj-team/`, clones `po/`, pins the newest tagged team version as a submodule, scaffolds, pushes, clones `architect/`, `coder/`, `reviewer/`, writes `./team` — and opens the four roles, each in its own window: a 2×2 grid of Terminal windows on macOS, a 2×2 tmux session elsewhere (`--no-open` to skip). From a clone of this repo, `./new-project.sh myproj` does the same.
 
 ```
 cd myproj-team
-./team po          # talk here — first, ask it to fill in Project conventions in AGENTS.md
-./team architect   # nudge with "check the board"
-./team coder       # nudge with "check the board"
-./team reviewer    # nudge with "review open PRs"
-./team status      # the board
+./team open        # (again) PO top-left, Architect top-right, Coder and Reviewer below; --tmux for tmux anywhere
+./team board       # the board, refreshed every 30 s — park it in a corner
+./team po          # or start any single role by hand — talk to PO first; ask it to fill in Project conventions in AGENTS.md
+./team status      # the board, once
 ./team log         # who did what
 ./team add coder   # more throughput: coder-2/, started with ./team coder 2
 ```
+
+`./team` is a three-line shim; the launcher itself lives in the submodule, so it upgrades with the team.
 
 By hand, the same thing is: `gh repo create`, `git clone … po`, `git submodule add … .claude/skills/agent-team`, then `/agent-team init` inside `po/`.
 

@@ -6,25 +6,27 @@
 #   ~/Projekt/agent-team/new-project.sh <name>
 #
 # Usage: new-project.sh <name | owner/name> [--public|--private] [--dir DIR]
-#                       [--team-url URL] [--team-version TAG]
+#                       [--team-url URL] [--team-version TAG] [--no-open]
 #
 #   <name>          GitHub repo. Created if it does not exist (private by default).
 #   --dir DIR       workspace directory (default: ./<name>-team)
 #   --team-url      the agent-team repo to pin (default: the clone this script runs from,
 #                   else https://github.com/fltman/agent-team.git)
 #   --team-version  tag to pin (default: newest tag on the team repo)
+#   --no-open       do not open the four role windows at the end
 #
 # Result: DIR/team launcher, DIR/po/ (with the submodule), DIR/architect/, DIR/coder/, DIR/reviewer/
 
 set -euo pipefail
 
-NAME=""; VIS="--private"; DIR=""; TEAM_URL=""; TEAM_VERSION=""
+NAME=""; VIS="--private"; DIR=""; TEAM_URL=""; TEAM_VERSION=""; OPEN=yes
 while [ $# -gt 0 ]; do
   case "$1" in
     --public|--private) VIS="$1"; shift ;;
     --dir) DIR="$2"; shift 2 ;;
     --team-url) TEAM_URL="$2"; shift 2 ;;
     --team-version) TEAM_VERSION="$2"; shift 2 ;;
+    --no-open) OPEN=no; shift ;;
     -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) NAME="$1"; shift ;;
@@ -72,6 +74,7 @@ fi
 # 2. workspace + po/
 [ -e "$DIR/po" ] && { echo "error: $DIR/po already exists" >&2; exit 2; }
 mkdir -p "$DIR"
+WS="$(cd "$DIR" && pwd)"
 git clone -q "https://github.com/$REPO.git" "$DIR/po" 2>&1 | grep -v 'cloned an empty' || true
 cd "$DIR/po"
 
@@ -86,3 +89,9 @@ echo
 
 # 4. scaffold, push, sibling clones, launcher
 bash .claude/skills/agent-team/scripts/init.sh --name "$NAME"
+
+# 5. open the four role windows (macOS Terminal 2×2, or tmux elsewhere)
+if [ "$OPEN" = yes ] && [ -t 1 ]; then
+  echo
+  "$WS/team" open
+fi

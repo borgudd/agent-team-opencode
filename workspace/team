@@ -9,14 +9,25 @@
 #   ./team status            the board (derived from git + GitHub)
 #   ./team log               recent team activity across all roles
 #   ./team pull              git pull (+ submodules) in every clone
+#   ./team open [--tmux]     open every role in its own window (macOS Terminal, 2×2 grid) or a tmux session
+#   ./team board             the board, refreshed every 30 s — keep it in a corner
 #
 # Any extra arguments after a role are passed to claude / codex.
 # The team itself lives in each clone at .claude/skills/agent-team (a pinned submodule).
 
 set -uo pipefail
-WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-URL="{{URL}}"
-DEFAULT="{{DEFAULT}}"
+# This file is the real launcher and lives in the agent-team submodule, so it upgrades with the team.
+# The ./team file at the workspace root is a three-line shim that execs it.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${AGENT_TEAM_WS:-}" ]; then
+  WS="$AGENT_TEAM_WS"
+else
+  sup="$(git -C "$here" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
+  if [ -n "$sup" ]; then WS="$(dirname "$sup")"; else WS="$here"; fi
+fi
+URL="$(git -C "$WS/po" remote get-url origin 2>/dev/null || true)"
+DEFAULT="$(git -C "$WS/po" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+[ -n "$DEFAULT" ] || DEFAULT=main
 BIN=".claude/skills/agent-team/bin"
 
 folder_for() { local role="$1" n="${2:-}"; if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi; }
@@ -59,5 +70,49 @@ case "$cmd" in
       git -C "$d" pull -q --rebase --autostash && git -C "$d" submodule update -q --init --recursive && echo ok || echo FAILED
     done
     ;;
-  *) sed -n '2,14p' "$0" ;;
+  board)
+    while true; do clear; "$0" status; echo; echo "$(date +%H:%M)  ./team board — Ctrl-C to stop"; sleep 30; done
+    ;;
+  open)
+    mode="terminal"; [ "${1:-}" = "--tmux" ] && mode=tmux
+    [ "$(uname)" = "Darwin" ] || mode=tmux
+    name="$(basename "$WS")"; name="${name%-team}"
+    roles=(po architect coder reviewer)
+    if [ "$mode" = tmux ]; then
+      command -v tmux >/dev/null || { echo "tmux not found (brew install tmux), or run ./team <role> in four terminals" >&2; exit 1; }
+      tmux has-session -t "$name" 2>/dev/null && { echo "tmux session '$name' already exists — attaching"; exec tmux attach -t "$name"; }
+      p0=$(tmux new-session -d -s "$name" -n team -c "$WS/po" -P -F '#{pane_id}' "$WS/team po")
+      tmux select-pane -t "$p0" -T po
+      p1=$(tmux split-window -h -t "$p0" -c "$WS/architect" -P -F '#{pane_id}' "$WS/team architect")
+      tmux select-pane -t "$p1" -T architect
+      p2=$(tmux split-window -v -t "$p0" -c "$WS/coder" -P -F '#{pane_id}' "$WS/team coder")
+      tmux select-pane -t "$p2" -T coder
+      p3=$(tmux split-window -v -t "$p1" -c "$WS/reviewer" -P -F '#{pane_id}' "$WS/team reviewer")
+      tmux select-pane -t "$p3" -T reviewer
+      tmux select-pane -t "$p0"
+      tmux set-option -t "$name" pane-border-status top >/dev/null
+      exec tmux attach -t "$name"
+    fi
+    # macOS Terminal.app: four windows tiled 2×2 — PO top-left, Architect top-right, Coder bottom-left, Reviewer bottom-right
+    read -r sw sh <<< "$(osascript -e 'tell application "Finder" to get bounds of window of desktop' | awk -F', ' '{print $3, $4}')"
+    [ -n "${sw:-}" ] || { sw=1440; sh=900; }
+    top=25; w=$(( sw / 2 )); h=$(( (sh - top) / 2 ))
+    i=0
+    for role in "${roles[@]}"; do
+      col=$(( i % 2 )); row=$(( i / 2 ))
+      l=$(( col * w )); t=$(( top + row * h )); r=$(( l + w )); b=$(( t + h ))
+      osascript >/dev/null <<APPLESCRIPT
+tell application "Terminal"
+  activate
+  set t to do script "cd '$WS/$role' && exec '$WS/team' $role"
+  delay 0.3
+  set custom title of t to "$name · $role"
+  set bounds of front window to {$l, $t, $r, $b}
+end tell
+APPLESCRIPT
+      i=$(( i + 1 ))
+    done
+    echo "opened 4 Terminal windows for $name. Board: ./team board"
+    ;;
+  *) sed -n '2,16p' "$0" ;;
 esac
