@@ -19,13 +19,13 @@
 
 set -euo pipefail
 
-NAME=""; VIS="--private"; DIR=""; TEAM_URL=""; TEAM_VERSION=""; OPEN=yes
+NAME=""; VIS="--private"; DIR=""; TEAM_URL=""; TEAM_VERSION=""; TEAM_VERSION_EXPLICIT=""; OPEN=yes
 while [ $# -gt 0 ]; do
   case "$1" in
     --public|--private) VIS="$1"; shift ;;
     --dir) DIR="$2"; shift 2 ;;
     --team-url) TEAM_URL="$2"; shift 2 ;;
-    --team-version) TEAM_VERSION="$2"; shift 2 ;;
+    --team-version) TEAM_VERSION="$2"; TEAM_VERSION_EXPLICIT=1; shift 2 ;;
     --no-open) OPEN=no; shift ;;
     -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
@@ -75,16 +75,28 @@ fi
 [ -e "$DIR/po" ] && { echo "error: $DIR/po already exists" >&2; exit 2; }
 mkdir -p "$DIR"
 WS="$(cd "$DIR" && pwd)"
-git clone -q "https://github.com/$REPO.git" "$DIR/po" 2>&1 | grep -v 'cloned an empty' || true
+git clone -q --recurse-submodules "https://github.com/$REPO.git" "$DIR/po" 2>&1 | grep -v 'cloned an empty' || true
 cd "$DIR/po"
 
-# 3. pin the team
-git submodule add -q "$TEAM_URL" .claude/skills/agent-team
-if [ -n "$TEAM_VERSION" ]; then
-  git -C .claude/skills/agent-team checkout -q "$TEAM_VERSION"
-  git add .claude/skills/agent-team
+# 3. pin the team (or respect the pin an existing project already has)
+if git ls-files --error-unmatch .claude/skills/agent-team >/dev/null 2>&1; then
+  git submodule update -q --init .claude/skills/agent-team
+  if [ -n "$TEAM_VERSION_EXPLICIT" ]; then
+    git -C .claude/skills/agent-team fetch -q --tags origin
+    git -C .claude/skills/agent-team checkout -q "$TEAM_VERSION"
+    git add .claude/skills/agent-team
+    echo "re-pinned:   agent-team $(git -C .claude/skills/agent-team describe --always)"
+  else
+    echo "already pinned: agent-team $(git -C .claude/skills/agent-team describe --always)  (--team-version to change, or /agent-team upgrade later)"
+  fi
+else
+  git submodule add -q "$TEAM_URL" .claude/skills/agent-team
+  if [ -n "$TEAM_VERSION" ]; then
+    git -C .claude/skills/agent-team checkout -q "$TEAM_VERSION"
+    git add .claude/skills/agent-team
+  fi
+  echo "pinned:      agent-team $(git -C .claude/skills/agent-team describe --always)"
 fi
-echo "pinned:      agent-team $(git -C .claude/skills/agent-team describe --always)"
 echo
 
 # 4. scaffold, push, sibling clones, launcher
