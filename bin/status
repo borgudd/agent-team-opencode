@@ -14,14 +14,20 @@
 set -uo pipefail
 TSV=0; [ "${1:-}" = "--tsv" ] && TSV=1   # machine-readable: id<TAB>status<TAB>title<TAB>next<TAB>where, no header
 cd "$(git rev-parse --show-toplevel)" || exit 1
-git fetch -q origin 2>/dev/null || true
+if ! git fetch -q origin 2>/dev/null; then
+  echo "warning: git fetch failed — no network from here? the board may be stale" >&2
+fi
 
 DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
 [ -n "$DEFAULT" ] || DEFAULT=main
 MAIN="origin/$DEFAULT"
 
 have_gh=0
-command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && have_gh=1
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  have_gh=1
+else
+  echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as in-progress" >&2
+fi
 
 stories="$(git ls-tree -r --name-only "$MAIN" -- .team/backlog/ 2>/dev/null | grep -E '/[0-9]{3}-.*\.md$' | sort)"
 if [ -z "$stories" ]; then [ "$TSV" -eq 1 ] || echo "backlog is empty"; exit 0; fi

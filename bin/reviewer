@@ -2,5 +2,11 @@
 # Reviewer (Codex / GPT). Reviews open PRs.
 # Codex reads AGENTS.md on its own; the prompt tells it which role it has.
 # Set reasoning effort to high in ~/.codex/config.toml — this is where the thinking pays.
+#
+# Codex's default sandbox (workspace-write) blocks the network, which silently breaks
+# git fetch, gh and therefore the board. The reviewer works in its own clone and needs
+# git + gh, so it runs with the sandbox open. Override with AGENT_TEAM_CODEX_FLAGS.
+: "${AGENT_TEAM_CODEX_FLAGS:=--sandbox danger-full-access --ask-for-approval on-request}"
+# shellcheck disable=SC2086
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
-  codex "You are the Reviewer. Read AGENTS.md, then your role file at ROLEFILE, and follow its \"On start\" section." "$@"
+  codex $AGENT_TEAM_CODEX_FLAGS "You are the Reviewer. Read AGENTS.md, then your role file at ROLEFILE, and follow its \"On start\" section." "$@"
