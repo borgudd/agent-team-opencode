@@ -24,7 +24,5 @@ else
 fi
 
 args=()
-for a in "$@"; do
-  if [ "$a" = "ROLEFILE" ]; then args+=("$RF"); else args+=("$a"); fi
-done
+for a in "$@"; do args+=("${a//ROLEFILE/$RF}"); done
 exec "${args[@]}"

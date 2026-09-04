@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 # Coder (Opus 5). Picks up planned stories and review feedback.
+[ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" coder coder.md \
   claude --model opus --append-system-prompt-file ROLEFILE "$@"

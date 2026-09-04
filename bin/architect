@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 # Architect (Fable 5.1). Picks up stories without a plan.
+[ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" architect architect.md \
   claude --model claude-fable-5-1 --append-system-prompt-file ROLEFILE "$@"

@@ -87,10 +87,7 @@ echo
 echo "workspace ready: $WS"
 echo
 echo "  cd $WS"
-echo "  ./team po          # talk here"
-echo "  ./team architect   # nudge: \"check the board\""
-echo "  ./team coder       # nudge: \"check the board\""
-echo "  ./team reviewer    # nudge: \"review open PRs\""
-echo "  ./team status      # the board"
+echo "  ./team open        # four windows, every role starts working"
+echo "  ./team board       # the board, auto-refreshing"
 echo
 echo "next: fill in 'Project conventions' in po/AGENTS.md, commit, push."

@@ -28,7 +28,7 @@ CLAUDE.md                    "read AGENTS.md"
 .team/                       team.md (human, models, pinned version) + the lanes: backlog/ plans/ notes/ reviews/
 ```
 
-Status is never written — it is derived from git and GitHub (`bin/status`). Each role writes only in its own lane, so nothing conflicts. The human merges.
+Status is never written — it is derived from git and GitHub (`bin/status`). Each role writes only in its own lane, so nothing conflicts. Architect, Coder and Reviewer run unattended: `bin/wait-for <role>` blocks until the board has something in their lane, so a pushed story flows through plan → PR → review with no nudging. The human talks to the PO and merges.
 
 Arguments given: `$ARGUMENTS`
 
@@ -46,14 +46,11 @@ Then open `AGENTS.md` and fill in **Project conventions** (stack, test command, 
 
 ```
 cd <workspace>
-./team po          # talk here
-./team architect   # nudge with "check the board"
-./team coder       # nudge with "check the board"
-./team reviewer    # nudge with "review open PRs"
-./team status
+./team open        # four windows; every role starts working, the three workers wait on the board
+./team board       # the board, auto-refreshing
 ```
 
-One terminal pane per line. Codex should run with high reasoning effort.
+`./team po` etc. start a single role by hand. Codex should run with high reasoning effort.
 
 ## `status`
 

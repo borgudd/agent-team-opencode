@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Block until the board has something for <role>.
+#   exit 0  and print the rows     — there is work
+#   exit 1  after MAX seconds      — nothing yet; the caller just runs it again
+# usage: wait-for <po|architect|coder|reviewer> [MAX seconds, default 540] [POLL seconds, default 30]
+set -uo pipefail
+role="${1:?role}"; max="${2:-540}"; every="${3:-30}"
+cd "$(git rev-parse --show-toplevel)" || exit 1
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+t=0
+while :; do
+  rows="$("$BIN/status" --tsv 2>/dev/null | awk -F'\t' -v r="$role" '$4==r {printf "%s  %-18s %s\n", $1, $2, $3}')"
+  if [ -n "$rows" ]; then
+    git pull -q --rebase --autostash 2>/dev/null || true
+    echo "work for $role:"; echo "$rows"; exit 0
+  fi
+  if [ "$t" -ge "$max" ]; then echo "nothing for $role after ${max}s — run wait-for again"; exit 1; fi
+  sleep "$every"; t=$((t + every))
+done

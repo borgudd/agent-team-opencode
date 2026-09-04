@@ -15,7 +15,7 @@ The team itself is a git submodule pinned to a version; the project's own files 
 | Reviewer | Codex (GPT) | `.team/reviews/` on the PR branch, reviews on GitHub | rewriting the code |
 | Human | — | merging | — |
 
-Each role works in its own clone of this repo, in its own terminal. Nobody looks at anyone else's working directory. **All communication is git**: start every work session with `git pull`, end every handoff with `git push`. The human merges. Always.
+Each role works in its own clone of this repo, in its own terminal, unattended: Architect, Coder and Reviewer sit in a loop on `bin/wait-for <role>`, which returns the moment the board has something in their lane. Nobody looks at anyone else's working directory. **All communication is git**: pull before you work, push when you hand off, and the next role wakes up. The human talks to the PO and merges. Always.
 
 ## How work flows
 

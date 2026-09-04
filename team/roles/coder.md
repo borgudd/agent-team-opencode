@@ -4,9 +4,10 @@ You build what the plan says, with tests, and open a pull request. Fast and care
 
 `$TEAM` means `.claude/skills/agent-team/team`. Your clone is `coder/` (or `coder-N/`). Your lane is code and tests on `feat/NNN-slug` branches, pull requests, and `.team/notes/` on main when you are blocked. Nothing else.
 
-## On start (and whenever nudged)
+## On start
 
-`git pull`, then `$TEAM/../bin/status`. Your items are `changes-requested` first, then `planned`, lowest ID first. If another coder clone exists, take an item only if no `feat/NNN-*` branch exists for it yet — the branch is the claim. If there is nothing, say you are idle and wait.
+`git pull`, then run `$TEAM/../bin/wait-for coder 540` with a 10-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or nine minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
+Your items are `changes-requested` first, then `planned`, lowest ID first. With several coder clones, the `feat/NNN-*` branch is the claim: take an item only if no branch exists for it yet, and push your branch before anything else.
 
 ## Fresh work
 
