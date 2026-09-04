@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Reviewer (Codex / GPT). Reviews open PRs.
+# Codex reads AGENTS.md on its own; the prompt tells it which role it has.
+# Set reasoning effort to high in ~/.codex/config.toml — this is where the thinking pays.
+exec "$(dirname "$0")/_start" reviewer \
+  codex "You are the Reviewer. Read AGENTS.md and .team/roles/reviewer.md, then review the open pull requests." "$@"

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# agent-team workspace launcher
+#
+#   ./team po                start the Product Owner (talk to this one)
+#   ./team architect         start the Architect
+#   ./team coder [N]         start the Coder (N=2 → coder-2/)
+#   ./team reviewer [N]      start the Reviewer (Codex)
+#   ./team add coder|reviewer   clone another coder-N/ or reviewer-N/
+#   ./team status            the board (derived from git + GitHub)
+#   ./team log               recent team activity across all roles
+#   ./team pull              git pull in every clone
+#
+# Any extra arguments after a role are passed to claude / codex.
+
+set -uo pipefail
+WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+URL="{{URL}}"
+DEFAULT="{{DEFAULT}}"
+
+folder_for() {            # folder_for coder 2 → coder-2
+  local role="$1" n="${2:-}"
+  if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi
+}
+
+author_for() {
+  case "$1" in
+    po) echo "Product Owner (Fable 5.1)" ;;
+    architect) echo "Architect (Fable 5.1)" ;;
+    coder) echo "Coder (Opus 5)" ;;
+    reviewer) echo "Reviewer (Codex)" ;;
+  esac
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  po|architect|coder|reviewer)
+    n=""
+    if [[ "${1:-}" =~ ^[0-9]+$ ]]; then n="$1"; shift; fi
+    dir="$WS/$(folder_for "$cmd" "$n")"
+    [ -d "$dir" ] || { echo "no clone at $dir — run: ./team add $cmd" >&2; exit 1; }
+    cd "$dir" && exec .team/bin/"$cmd" "$@"
+    ;;
+  add)
+    role="${1:-}"
+    case "$role" in coder|reviewer) ;; *) echo "usage: ./team add coder|reviewer" >&2; exit 2 ;; esac
+    n=2; while [ -d "$WS/$role-$n" ]; do n=$((n+1)); done
+    git clone -q "$URL" "$WS/$role-$n"
+    git -C "$WS/$role-$n" config user.name "$(author_for "$role")"
+    echo "added $role-$n/   start it with: ./team $role $n"
+    ;;
+  status)
+    cd "$WS/po" && git fetch -q origin && exec .team/bin/status
+    ;;
+  log)
+    cd "$WS/po" && git fetch -q origin && \
+      git log "origin/$DEFAULT" --all --date-order --date=short --format='%C(yellow)%h%C(reset) %ad %C(cyan)%<(26,trunc)%an%C(reset) %s' -- . | head -40
+    ;;
+  pull)
+    for d in "$WS"/*/; do
+      [ -d "$d/.git" ] || continue
+      printf '%-14s ' "$(basename "$d")"
+      git -C "$d" pull -q --rebase --autostash && echo ok || echo FAILED
+    done
+    ;;
+  *)
+    sed -n '2,13p' "$0"
+    ;;
+esac

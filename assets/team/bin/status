@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# The board. Status is derived from git and GitHub — never written by hand.
+#
+#   ready              story on main, no plan                     → architect
+#   needs-split        plan says the story is too big             → po
+#   planned            plan on main, no branch yet                → coder
+#   needs-replan       coder note newer than the plan             → architect
+#   in-progress        remote branch exists, no PR                → coder
+#   in-review          PR open, waiting for review                → reviewer
+#   changes-requested  review asked for changes, no new commits   → coder
+#   approved           reviewer approved                          → human (merge)
+#   done / closed      PR merged / closed                         → —
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+git fetch -q origin 2>/dev/null || true
+
+DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+[ -n "$DEFAULT" ] || DEFAULT=main
+MAIN="origin/$DEFAULT"
+
+have_gh=0
+command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && have_gh=1
+
+stories="$(git ls-tree -r --name-only "$MAIN" -- .team/backlog/ 2>/dev/null | grep -E '/[0-9]{3}-.*\.md$' | sort)"
+if [ -z "$stories" ]; then echo "backlog is empty"; exit 0; fi
+
+first_line() { git show "$MAIN:$1" 2>/dev/null | sed -n "s/^$2: *//p" | head -1; }
+ctime()      { git log -1 --format=%ct "$MAIN" -- "$1" 2>/dev/null || echo 0; }
+
+printf '%-4s %-18s %-38s %-10s %s\n' ID STATUS TITLE NEXT WHERE
+while IFS= read -r story; do
+  base="$(basename "$story" .md)"; id="${base%%-*}"
+  title="$(first_line "$story" title)"
+  plan="$(git ls-tree -r --name-only "$MAIN" -- .team/plans/ | grep "/${id}-" | head -1)"
+  note="$(git ls-tree -r --name-only "$MAIN" -- .team/notes/ | grep "/${id}-" | head -1)"
+  branch="$(git branch -r --list "origin/feat/${id}-*" | head -1 | sed 's|^ *origin/||')"
+  status=""; next=""; where=""
+
+  if [ -z "$plan" ]; then
+    status=ready; next=architect
+  elif [ "$(first_line "$plan" verdict)" = "needs-split" ]; then
+    status=needs-split; next=po
+  elif [ -n "$note" ] && [ "$(ctime "$note")" -gt "$(ctime "$plan")" ]; then
+    status=needs-replan; next=architect; where="$note"
+  elif [ -z "$branch" ]; then
+    status=planned; next=coder; where="$plan"
+  elif [ "$have_gh" -eq 0 ]; then
+    status=in-progress; next="coder?"; where="$branch (no gh)"
+  else
+    pr="$(gh pr list --head "$branch" --state all --limit 1 \
+          --json number,state,url,reviewDecision \
+          --jq '.[0] | [.number, .state, .reviewDecision, .url] | @tsv' 2>/dev/null)"
+    if [ -z "$pr" ]; then
+      status=in-progress; next=coder; where="$branch"
+    else
+      IFS=$'\t' read -r num state decision url <<< "$pr"
+      where="#$num"
+      case "$state" in
+        MERGED) status=done; next="—" ;;
+        CLOSED) status=closed; next="—" ;;
+        *)
+          case "$decision" in
+            APPROVED) status=approved; next=human ;;
+            CHANGES_REQUESTED)
+              ts="$(gh pr view "$num" --json reviews,commits \
+                    --jq '[(.reviews | map(.submittedAt) | max // ""), (.commits | map(.committedDate) | max // "")] | @tsv' 2>/dev/null)"
+              IFS=$'\t' read -r last_review last_commit <<< "$ts"
+              if [[ "$last_commit" > "$last_review" ]]; then
+                status=in-review; next=reviewer
+              else
+                status=changes-requested; next=coder
+              fi ;;
+            *) status=in-review; next=reviewer ;;
+          esac ;;
+      esac
+    fi
+  fi
+  printf '%-4s %-18s %-38s %-10s %s\n' "$id" "$status" "${title:0:38}" "$next" "$where"
+done <<< "$stories"
