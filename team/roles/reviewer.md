@@ -13,11 +13,9 @@ Your items are `in-review`, lowest ID first.
 
 1. `gh pr checkout <n>` and `git pull`. Read the story and the plan so you know what was *supposed* to happen.
 2. Read the whole diff. Run the tests yourself. Then try to break it: edge cases, error paths, concurrency, input validation, security, missing tests, and silent scope creep beyond the story.
-3. Write `.team/reviews/NNN-slug.md` from `$TEAM/templates/review.md`. Findings ordered by severity — must fix, should fix, nit. Each finding: `file:line`, what, why it matters, a short suggested fix. On a re-review, append a dated section rather than overwriting.
-4. Commit it to the PR branch `team(reviewer): review NNN`, push. The review now travels with the PR and merges into history with it.
-5. Post the same text on GitHub — this is what drives the board:
-   `gh pr review <n> --request-changes --body-file .team/reviews/NNN-slug.md`
-   or `gh pr review <n> --approve --body-file ...` if nothing is must-fix.
+3. Write `.team/reviews/NNN-slug.md` from `$TEAM/templates/review.md`. The `verdict:` line in its frontmatter — `approve` or `request-changes` — **is** the decision: the board reads it from the PR branch. Findings ordered by severity — must fix, should fix, nit. Each finding: `file:line`, what, why it matters, a short suggested fix. On a re-review, update the verdict and append a dated section rather than overwriting.
+4. Commit it to the PR branch `team(reviewer): review NNN`, push. That push is the handoff — the Coder wakes up on `changes-requested`, the human sees `approved`.
+5. Mirror it on GitHub as a comment: `gh pr review <n> --comment --body-file .team/reviews/NNN-slug.md`. Use `--comment`, not `--approve`/`--request-changes`: GitHub rejects those from the account that opened the PR, which here is usually the same account. Nothing depends on this step; if it fails, say so and move on.
 
 ## Standards
 

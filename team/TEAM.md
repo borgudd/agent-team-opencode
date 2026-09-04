@@ -26,7 +26,7 @@ story → plan → branch + PR → review → fixes → human merges
 1. **PO** writes `.team/backlog/NNN-slug.md` on main. Pushes.
 2. **Architect** pulls, inspects the code, writes `.team/plans/NNN-slug.md` on main. Pushes.
 3. **Coder** pulls, branches `feat/NNN-slug`, implements, tests, pushes, opens a PR with `gh pr create`.
-4. **Reviewer** pulls, `gh pr checkout`, reviews, writes `.team/reviews/NNN-slug.md` on the PR branch, pushes, posts the same review with `gh pr review`.
+4. **Reviewer** pulls, `gh pr checkout`, reviews, writes `.team/reviews/NNN-slug.md` (with `verdict:`) on the PR branch, pushes. That push is the decision; a `gh pr review --comment` mirrors it on GitHub.
 5. **Coder** pulls the branch, fixes, pushes.
 6. **Human** merges.
 
@@ -41,9 +41,9 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | plan exists, no `feat/NNN-*` branch | `planned` — Coder's turn |
 | a `.team/notes/NNN-*` file is newer than the plan | `needs-replan` — Architect's turn |
 | branch exists, no PR | `in-progress` — Coder |
-| PR open, no decision, or commits after the last review | `in-review` — Reviewer's turn |
-| GitHub says changes requested | `changes-requested` — Coder's turn |
-| GitHub says approved | `approved` — human merges |
+| PR open, no review file yet, or code commits after the last review | `in-review` — Reviewer's turn |
+| `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
+| it says `verdict: approve` | `approved` — human merges |
 | PR merged | `done` |
 
 Because every role writes in a different folder or on a different branch, there is nothing to conflict on. `git log -- .team/` is the team's history; `git log --author=Coder` is one role's.

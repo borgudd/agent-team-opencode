@@ -20,8 +20,8 @@ Your items are `changes-requested` first, then `planned`, lowest ID first. With 
 ## Review came back
 
 1. `git checkout feat/NNN-slug && git pull`.
-2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
-3. Test, commit, push. The board flips back to `in-review` on its own.
+2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
+3. Test, commit, push. Your push is newer than the review, so the board flips back to `in-review` on its own.
 
 ## When the plan is wrong
 

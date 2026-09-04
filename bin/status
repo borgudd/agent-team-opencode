@@ -6,9 +6,11 @@
 #   planned            plan on main, no branch yet                → coder
 #   needs-replan       coder note newer than the plan             → architect
 #   in-progress        remote branch exists, no PR                → coder
-#   in-review          PR open, waiting for review                → reviewer
-#   changes-requested  review asked for changes, no new commits   → coder
-#   approved           reviewer approved                          → human (merge)
+#   in-review          PR open, no review yet or new commits since → reviewer
+#   changes-requested  review file on the branch says so           → coder
+#   approved           review file on the branch says so           → human (merge)
+# The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
+# GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
 
 set -uo pipefail
@@ -56,30 +58,36 @@ while IFS= read -r story; do
     status=in-progress; next="coder?"; where="$branch (no gh)"
   else
     pr="$(gh pr list --head "$branch" --state all --limit 1 \
-          --json number,state,url,reviewDecision \
-          --jq '.[0] | [.number, .state, .reviewDecision, .url] | @tsv' 2>/dev/null)"
+          --json number,state,url --jq '.[0] | [.number, .state, .url] | @tsv' 2>/dev/null)"
     if [ -z "$pr" ]; then
       status=in-progress; next=coder; where="$branch"
     else
-      IFS=$'\t' read -r num state decision url <<< "$pr"
+      IFS=$'\t' read -r num state url <<< "$pr"
       where="#$num"
       case "$state" in
         MERGED) status=done; next="—" ;;
         CLOSED) status=closed; next="—" ;;
         *)
-          case "$decision" in
-            APPROVED) status=approved; next=human ;;
-            CHANGES_REQUESTED)
-              ts="$(gh pr view "$num" --json reviews,commits \
-                    --jq '[(.reviews | map(.submittedAt) | max // ""), (.commits | map(.committedDate) | max // "")] | @tsv' 2>/dev/null)"
-              IFS=$'\t' read -r last_review last_commit <<< "$ts"
-              if [[ "$last_commit" > "$last_review" ]]; then
-                status=in-review; next=reviewer
-              else
-                status=changes-requested; next=coder
-              fi ;;
-            *) status=in-review; next=reviewer ;;
-          esac ;;
+          # The verdict lives in .team/reviews/NNN-*.md on the PR branch (frontmatter `verdict:`).
+          # It counts only if the review commit is at least as new as the last non-review commit;
+          # a Coder push after the review puts the story back in the Reviewer's lane.
+          review="$(git ls-tree -r --name-only "origin/$branch" -- .team/reviews/ 2>/dev/null | grep "/${id}-" | head -1)"
+          if [ -n "$review" ]; then
+            verdict="$(git show "origin/$branch:$review" 2>/dev/null | sed -n 's/^verdict: *//p' | head -1)"
+            review_ts="$(git log -1 --format=%ct "origin/$branch" -- "$review" 2>/dev/null || echo 0)"
+            work_ts="$(git log -1 --format=%ct "origin/$branch" -- . ':(exclude).team/reviews' 2>/dev/null || echo 0)"
+            if [ "${review_ts:-0}" -ge "${work_ts:-0}" ]; then
+              case "$verdict" in
+                approve*)  status=approved; next=human ;;
+                request*|changes*) status=changes-requested; next=coder ;;
+                *) status=in-review; next=reviewer; where="$where (review has no verdict)" ;;
+              esac
+            else
+              status=in-review; next=reviewer
+            fi
+          else
+            status=in-review; next=reviewer
+          fi ;;
       esac
     fi
   fi
