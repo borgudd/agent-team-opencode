@@ -8,20 +8,17 @@ See [SKILL.md](SKILL.md) for the design and [team/TEAM.md](team/TEAM.md) for the
 
 ## New project
 
+One command, from nothing to a running workspace:
+
 ```bash
-gh repo create myproj --private                      # or use an existing repo
-mkdir myproj-team && cd myproj-team
-git clone git@github.com:me/myproj.git po && cd po
-git submodule add git@github.com:me/agent-team.git .claude/skills/agent-team
-claude
-> /agent-team init
+curl -sL https://raw.githubusercontent.com/fltman/agent-team/main/new-project.sh | bash -s -- myproj
 ```
 
-`init` scaffolds the project files, pushes, clones `architect/`, `coder/`, `reviewer/` next to `po/`, and writes `../team`. Then:
+It creates the GitHub repo if needed (private by default, `--public` to change), makes `./myproj-team/`, clones `po/`, pins the newest tagged team version as a submodule, scaffolds, pushes, clones `architect/`, `coder/`, `reviewer/` and writes `./team`. From a clone of this repo, `./new-project.sh myproj` does the same. Then:
 
 ```
-cd ..
-./team po          # talk here
+cd myproj-team
+./team po          # talk here — first, ask it to fill in Project conventions in AGENTS.md
 ./team architect   # nudge with "check the board"
 ./team coder       # nudge with "check the board"
 ./team reviewer    # nudge with "review open PRs"
@@ -29,6 +26,8 @@ cd ..
 ./team log         # who did what
 ./team add coder   # more throughput: coder-2/, started with ./team coder 2
 ```
+
+By hand, the same thing is: `gh repo create`, `git clone … po`, `git submodule add … .claude/skills/agent-team`, then `/agent-team init` inside `po/`.
 
 ## Upgrading a project's team
 
