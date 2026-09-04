@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Product Owner (Fable 5.1). This is the one you talk to.
-exec "$(dirname "$0")/_start" po \
-  claude --model claude-fable-5-1 --append-system-prompt-file .team/roles/product-owner.md "$@"

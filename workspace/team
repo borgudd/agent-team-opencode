@@ -8,20 +8,18 @@
 #   ./team add coder|reviewer   clone another coder-N/ or reviewer-N/
 #   ./team status            the board (derived from git + GitHub)
 #   ./team log               recent team activity across all roles
-#   ./team pull              git pull in every clone
+#   ./team pull              git pull (+ submodules) in every clone
 #
 # Any extra arguments after a role are passed to claude / codex.
+# The team itself lives in each clone at .claude/skills/agent-team (a pinned submodule).
 
 set -uo pipefail
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URL="{{URL}}"
 DEFAULT="{{DEFAULT}}"
+BIN=".claude/skills/agent-team/bin"
 
-folder_for() {            # folder_for coder 2 → coder-2
-  local role="$1" n="${2:-}"
-  if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi
-}
-
+folder_for() { local role="$1" n="${2:-}"; if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi; }
 author_for() {
   case "$1" in
     po) echo "Product Owner (Fable 5.1)" ;;
@@ -34,22 +32,21 @@ author_for() {
 cmd="${1:-}"; shift || true
 case "$cmd" in
   po|architect|coder|reviewer)
-    n=""
-    if [[ "${1:-}" =~ ^[0-9]+$ ]]; then n="$1"; shift; fi
+    n=""; if [[ "${1:-}" =~ ^[0-9]+$ ]]; then n="$1"; shift; fi
     dir="$WS/$(folder_for "$cmd" "$n")"
     [ -d "$dir" ] || { echo "no clone at $dir — run: ./team add $cmd" >&2; exit 1; }
-    cd "$dir" && exec .team/bin/"$cmd" "$@"
+    cd "$dir" && exec "$BIN/$cmd" "$@"
     ;;
   add)
     role="${1:-}"
     case "$role" in coder|reviewer) ;; *) echo "usage: ./team add coder|reviewer" >&2; exit 2 ;; esac
     n=2; while [ -d "$WS/$role-$n" ]; do n=$((n+1)); done
-    git clone -q "$URL" "$WS/$role-$n"
+    git clone -q --recurse-submodules "$URL" "$WS/$role-$n"
     git -C "$WS/$role-$n" config user.name "$(author_for "$role")"
     echo "added $role-$n/   start it with: ./team $role $n"
     ;;
   status)
-    cd "$WS/po" && git fetch -q origin && exec .team/bin/status
+    cd "$WS/po" && git fetch -q origin && exec "$BIN/status"
     ;;
   log)
     cd "$WS/po" && git fetch -q origin && \
@@ -59,10 +56,8 @@ case "$cmd" in
     for d in "$WS"/*/; do
       [ -d "$d/.git" ] || continue
       printf '%-14s ' "$(basename "$d")"
-      git -C "$d" pull -q --rebase --autostash && echo ok || echo FAILED
+      git -C "$d" pull -q --rebase --autostash && git -C "$d" submodule update -q --init --recursive && echo ok || echo FAILED
     done
     ;;
-  *)
-    sed -n '2,13p' "$0"
-    ;;
+  *) sed -n '2,14p' "$0" ;;
 esac

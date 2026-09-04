@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# shared preamble for the role launchers: sync, resolve role file, sanity-check the clone, run
+# usage: _start <role> <role-file-basename> <cmd...>   ("ROLEFILE" in cmd is replaced)
+set -uo pipefail
+role="$1"; rolefile="$2"; shift 2
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT"
+SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+here="$(basename "$PWD")"
+case "$here" in
+  "$role"|"$role"-[0-9]*) ;;
+  *) echo "warning: starting the $role in clone '$here' — each role should have its own clone" >&2 ;;
+esac
+
+git pull -q --rebase --autostash 2>/dev/null || echo "warning: git pull failed — check the remote before working" >&2
+git submodule update -q --init --recursive 2>/dev/null || true
+
+# project override wins over the submodule's role file
+if [ -f ".team/roles/$rolefile" ]; then
+  RF=".team/roles/$rolefile"
+else
+  RF="$SKILL/team/roles/$rolefile"
+fi
+
+args=()
+for a in "$@"; do
+  if [ "$a" = "ROLEFILE" ]; then args+=("$RF"); else args+=("$a"); fi
+done
+exec "${args[@]}"

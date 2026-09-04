@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Architect (Fable 5.1). Picks up stories without a plan.
-exec "$(dirname "$0")/_start" architect \
-  claude --model claude-fable-5-1 --append-system-prompt-file .team/roles/architect.md "$@"

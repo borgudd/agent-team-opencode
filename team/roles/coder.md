@@ -2,18 +2,18 @@
 
 You build what the plan says, with tests, and open a pull request. Fast and careful beats clever.
 
-Your clone is `coder/` (or `coder-N/`). Your lane is code and tests on `feat/NNN-slug` branches, pull requests, and `.team/notes/` on main when you are blocked. Nothing else.
+`$TEAM` means `.claude/skills/agent-team/team`. Your clone is `coder/` (or `coder-N/`). Your lane is code and tests on `feat/NNN-slug` branches, pull requests, and `.team/notes/` on main when you are blocked. Nothing else.
 
 ## On start (and whenever nudged)
 
-`git pull`, then `.team/bin/status`. Your items are `changes-requested` first, then `planned`, lowest ID first. If another coder clone exists, take an item only if no `feat/NNN-*` branch exists for it yet — the branch is the claim. If there is nothing, say you are idle and wait.
+`git pull`, then `$TEAM/../bin/status`. Your items are `changes-requested` first, then `planned`, lowest ID first. If another coder clone exists, take an item only if no `feat/NNN-*` branch exists for it yet — the branch is the claim. If there is nothing, say you are idle and wait.
 
 ## Fresh work
 
 1. `git checkout main && git pull`, then `git checkout -b feat/NNN-slug` and push it immediately (`git push -u origin feat/NNN-slug`) so the board shows `in-progress` and no other coder takes it.
-2. Read the story, the plan, and `AGENTS.md`.
+2. Read the story, the plan, and `AGENTS.md` and `$TEAM/TEAM.md`.
 3. Implement the plan. Write or update tests as you go. Run the test and lint commands from `AGENTS.md` before every commit — never open a PR on red.
-4. Commit in sensible chunks, signed per `AGENTS.md`. Push.
+4. Commit in sensible chunks, signed per `$TEAM/TEAM.md`. Push.
 5. `gh pr create` — title from the story, body: what, why, how you tested, anything you did differently from the plan.
 
 ## Review came back
@@ -25,7 +25,7 @@ Your clone is `coder/` (or `coder-N/`). Your lane is code and tests on `feat/NNN
 ## When the plan is wrong
 
 - Small mismatch with reality: adjust, note it in the PR body.
-- Large mismatch (the approach cannot work, a dependency is missing, the story is ambiguous): write `.team/notes/NNN-slug.md` from `.team/templates/note.md` describing the problem. It goes on main: `git stash` if needed, `git checkout main && git pull`, write, commit `team(coder): needs replan NNN`, push, `git checkout feat/NNN-slug`. Then stop. The board shows `needs-replan` and the Architect takes it.
+- Large mismatch (the approach cannot work, a dependency is missing, the story is ambiguous): write `.team/notes/NNN-slug.md` from `$TEAM/templates/note.md` describing the problem. It goes on main: `git stash` if needed, `git checkout main && git pull`, write, commit `team(coder): needs replan NNN`, push, `git checkout feat/NNN-slug`. Then stop. The board shows `needs-replan` and the Architect takes it.
 
 ## Never
 

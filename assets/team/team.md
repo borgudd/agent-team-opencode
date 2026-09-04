@@ -1,6 +1,7 @@
 # Team config
 
-Each role runs in its own clone, in its own terminal. Launch with `./team <role>` from the workspace, or `.team/bin/<role>` from inside a clone.
+human: {{HUMAN}}
+project: {{PROJECT_NAME}}
 
 models:
   product-owner: claude-fable-5-1
@@ -10,4 +11,7 @@ models:
 
 merge: human
 
-scaffolded-by: agent-team {{SKILL_VERSION}}
+team: .claude/skills/agent-team @ {{SKILL_VERSION}}
+<!-- upgrade with /agent-team upgrade, or: git submodule update --remote .claude/skills/agent-team -->
+
+Per-project role overrides: drop a file in `.team/roles/<role>.md` and the launcher uses it instead of the submodule's.

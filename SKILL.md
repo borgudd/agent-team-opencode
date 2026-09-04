@@ -1,14 +1,14 @@
 ---
 name: agent-team
-description: Set up a workspace where a multi-model agent team — Product Owner and Architect on Fable 5.1, Coder on Opus 5, Reviewer on Codex (GPT) — works on one GitHub repo from separate clones, one terminal per role, coordinating only through git. Run /agent-team init <owner/repo> to create the workspace, /agent-team status for the board.
-argument-hint: "init <owner/repo> [--dir path] [--name project] | status"
+description: A multi-model agent team — Product Owner and Architect on Fable 5.1, Coder on Opus 5, Reviewer on Codex (GPT) — that lives in the project as a pinned git submodule and works from separate clones, one terminal per role, coordinating only through git. /agent-team init sets up the workspace, /agent-team status shows the board, /agent-team upgrade bumps the pinned version.
+argument-hint: "init [--name project] | status | upgrade"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
 # agent-team
 
-One repo, one clone per role, one terminal per clone. All communication is git.
+One repo, one clone per role, one terminal per clone. All communication is git. The team itself — roles, templates, launchers, rulebook — is this submodule at `.claude/skills/agent-team`, pinned per project, so two projects can run different team versions without ever touching each other.
 
 ```
 <workspace>/
@@ -16,59 +16,63 @@ One repo, one clone per role, one terminal per clone. All communication is git.
 ├── po/           clone · Product Owner · Fable 5.1 · writes .team/backlog/  on main
 ├── architect/    clone · Architect     · Fable 5.1 · writes .team/plans/    on main
 ├── coder/        clone · Coder         · Opus 5    · code on feat/NNN-*, PRs, .team/notes/
-├── coder-2/      (added with ./team add coder when you want more throughput)
 └── reviewer/     clone · Reviewer      · Codex     · .team/reviews/ on the PR branch + gh pr review
 ```
 
-Nobody reads anyone else's working directory. Every session starts with `git pull` and ends with `git push`. Status is never written by hand — it is derived from what exists in git and on GitHub, so no two roles ever edit the same file. The human merges.
+Inside every clone:
+
+```
+.claude/skills/agent-team/   this submodule: SKILL.md, bin/, team/{TEAM.md,roles,templates}
+AGENTS.md                    project conventions + pointer to team/TEAM.md   (Codex reads this)
+CLAUDE.md                    "read AGENTS.md"
+.team/                       team.md (human, models, pinned version) + the lanes: backlog/ plans/ notes/ reviews/
+```
+
+Status is never written — it is derived from git and GitHub (`bin/status`). Each role writes only in its own lane, so nothing conflicts. The human merges.
 
 Arguments given: `$ARGUMENTS`
 
-## `init <owner/repo>`
+## `init`
 
-Creates the workspace. Needs `gh` authenticated (`gh auth status`) and a GitHub repo, empty or not.
+You are being run inside the first clone, which must be named `po/` and already contain this submodule (that is how you got here). Run:
 
-1. If the user has no repo yet, offer to create one: `gh repo create <name> --private`. Do not create it without asking.
-2. Resolve the directory this SKILL.md lives in and run:
+```bash
+bash .claude/skills/agent-team/scripts/init.sh [--name "<project name>"]
+```
 
-   ```bash
-   bash "<skill-dir>/scripts/init.sh" --repo <owner/repo> [--dir <workspace>] [--name "<project name>"]
-   ```
+It scaffolds `AGENTS.md`, `CLAUDE.md` and `.team/` if missing, commits and pushes (the commit records this skill's `git describe` version), clones `architect/`, `coder/`, `reviewer/` next to `po/` with the submodule checked out, sets each clone's git author to its role, and writes `../team`.
 
-   Default `--dir` is `./<repo>-team`. The script clones `po/`, scaffolds `.team/`, `AGENTS.md`, `CLAUDE.md` into it if missing, commits and pushes, then clones `architect/`, `coder/`, `reviewer/` and writes the `team` launcher. Each clone gets `git config user.name "<Role> (<model>)"` so `git log` shows who did what; the email stays the human's.
-3. Open `<workspace>/po/AGENTS.md` and fill in **Project conventions** (stack, test command, lint) from what you can see in the repo. Ask only if you cannot tell. Commit and push from `po/` — the other clones pull on start.
-4. Tell the user how to run it, briefly:
+Then open `AGENTS.md` and fill in **Project conventions** (stack, test command, lint) from what you can see in the repo — ask only if you cannot tell. Commit and push. Tell the user, briefly:
 
-   ```
-   cd <workspace>
-   ./team po          # talk here
-   ./team architect   # nudge with "check the board"
-   ./team coder       # nudge with "check the board"
-   ./team reviewer    # nudge with "review open PRs"
-   ./team status      # the board
-   ```
+```
+cd <workspace>
+./team po          # talk here
+./team architect   # nudge with "check the board"
+./team coder       # nudge with "check the board"
+./team reviewer    # nudge with "review open PRs"
+./team status
+```
 
-   One terminal pane per line. Codex should run with high reasoning effort — the Reviewer is where the thinking pays.
+One terminal pane per line. Codex should run with high reasoning effort.
 
 ## `status`
 
-Run `./team status` from the workspace, or `.team/bin/status` from inside any clone, and show the output. If neither exists, the workspace has not been set up — offer `init`.
+Run `.claude/skills/agent-team/bin/status` and show it.
+
+## `upgrade`
+
+```bash
+git submodule update --remote .claude/skills/agent-team
+git -C .claude/skills/agent-team describe
+```
+
+Show the user what changed (`git -C .claude/skills/agent-team log --oneline <old>..<new>`), then commit the new pointer: `team: agent-team → <version>`, push. The other clones pick it up on their next start (`bin/_start` runs `git submodule update`). Update the `team:` line in `.team/team.md` in the same commit.
 
 ## Why it is shaped like this
 
-- **Separate clones, not a shared checkout.** Four sessions in one working directory step on each other the moment the Coder checks out a branch. Clones are dumb and robust; GitHub is the hub. Worktrees would be lighter but only one worktree can have `main` checked out, and two roles need it.
-- **Status is derived.** Story on main → ready. Plan → planned. Remote branch → in-progress. PR → in-review; GitHub's review decision → approved / changes-requested; merged → done. Nothing to keep in sync, nothing to conflict on, and the board is always true.
-- **Lanes.** PO → `backlog/`, Architect → `plans/`, Coder → code and `notes/`, Reviewer → `reviews/`. Different folders, different branches, zero merge conflicts.
-- **A different model reviews.** The Reviewer makes different mistakes than the Coder. Never the same model family.
-- **Short role files.** Frontier models get worse with over-prescriptive instructions. Roles say what you own and hand off, not how to code.
+- **The team is a submodule, not a global install.** Version compatibility is per project: a project pins the team it was built with and upgrades when it chooses. Any fresh clone of the project has the whole team; nothing lives in `~/.claude`.
+- **Separate clones.** Four sessions in one working directory step on each other the moment the Coder checks out a branch. Clones are dumb and robust; GitHub is the hub.
+- **Derived status, lanes.** Story → ready, plan → planned, branch → in-progress, PR → in-review, review decision → approved / changes-requested, merged → done. PO → `backlog/`, Architect → `plans/`, Coder → code + `notes/`, Reviewer → `reviews/`. Nothing to sync, nothing to conflict on.
+- **A different model reviews.** Different mistakes. Never the same family as the Coder.
+- **Short role files.** Frontier models get worse with over-prescriptive instructions. Per-project tweaks go in `.team/roles/<role>.md`, which overrides the submodule's file.
 - **Agents sign their work** and never pose as the human. **The human merges.**
-
-## Files
-
-- `scripts/init.sh` — creates the workspace (clones, scaffold, launcher)
-- `scripts/scaffold.sh` — copies `assets/` into the current clone; idempotent, never overwrites
-- `assets/root/` → `AGENTS.md`, `CLAUDE.md`
-- `assets/team/` → `.team/` (team.md, README, roles/, templates/, bin/, backlog/, plans/, notes/, reviews/)
-- `assets/workspace/team` → the launcher at the workspace root
-
-The skill is a git repo installed by `git clone` into `~/.claude/skills/agent-team`; update with `git pull`. Every scaffold records the skill version (`git describe`) in the scaffold commit and in `.team/team.md`.

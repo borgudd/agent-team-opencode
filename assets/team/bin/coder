@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Coder (Opus 5). Picks up planned stories and review feedback.
-exec "$(dirname "$0")/_start" coder \
-  claude --model opus --append-system-prompt-file .team/roles/coder.md "$@"

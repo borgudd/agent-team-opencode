@@ -1,85 +1,60 @@
 #!/usr/bin/env bash
-# agent-team init — create a workspace with one clone per role.
+# agent-team init — run from inside the first clone (po/) after adding the submodule.
 #
-# Usage:
-#   bash init.sh --repo <owner/repo | git url> [--dir <workspace>] [--name "Project"]
+#   mkdir myproj-team && cd myproj-team
+#   git clone git@github.com:me/myproj.git po && cd po
+#   git submodule add git@github.com:me/agent-team.git .claude/skills/agent-team
+#   bash .claude/skills/agent-team/scripts/init.sh [--name "Project"]      # or /agent-team init in claude
 #
-# Result:
-#   <workspace>/team            launcher
-#   <workspace>/po/             Product Owner clone
-#   <workspace>/architect/      Architect clone
-#   <workspace>/coder/          Coder clone
-#   <workspace>/reviewer/       Reviewer clone
+# Result (siblings of po/):
+#   ../team          launcher
+#   ../architect/    ../coder/    ../reviewer/     clones with the submodule checked out
 #
-# The repo may be empty. .team/, AGENTS.md and CLAUDE.md are scaffolded into
-# po/ if missing, committed and pushed before the other clones are made.
+# The repo may be empty. Per-project files (AGENTS.md, CLAUDE.md, .team/) are
+# scaffolded if missing, then everything is committed and pushed before the
+# sibling clones are made.
 
 set -euo pipefail
-
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_VERSION="$(git -C "$SKILL_DIR" describe --always --dirty 2>/dev/null || echo unversioned)"
 
-REPO=""; DIR=""; NAME=""
+NAME=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="$2"; shift 2 ;;
-    --dir)  DIR="$2";  shift 2 ;;
     --name) NAME="$2"; shift 2 ;;
     -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$REPO" ] || { echo "error: --repo is required (owner/repo or a git url)" >&2; exit 2; }
 
-# owner/repo → full url; anything with a scheme or a colon is used as-is
-case "$REPO" in
-  *://*|*@*:*|/*|.*) URL="$REPO" ;;
-  *) URL="https://github.com/$REPO.git" ;;
-esac
-REPO_NAME="$(basename "$REPO" .git)"
-[ -n "$DIR" ]  || DIR="./$REPO_NAME-team"
-[ -n "$NAME" ] || NAME="$REPO_NAME"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "error: run this inside the po/ clone" >&2; exit 2; }
+cd "$ROOT"
+WS="$(dirname "$ROOT")"
 
-mkdir -p "$DIR"
-DIR="$(cd "$DIR" && pwd)"
-cd "$DIR"
+# sanity: we are the po/ clone, the submodule is where we expect, origin exists
+[ "$(basename "$ROOT")" = "po" ] || { echo "error: this clone must be named po/ (it is '$(basename "$ROOT")'). mv it, then rerun." >&2; exit 2; }
+[ -f ".claude/skills/agent-team/SKILL.md" ] || {
+  echo "error: submodule missing. Run: git submodule add <agent-team repo url> .claude/skills/agent-team" >&2; exit 2; }
+URL="$(git remote get-url origin 2>/dev/null)" || { echo "error: no 'origin' remote" >&2; exit 2; }
+[ -e "$WS/team" ] && { echo "error: $WS/team exists — workspace looks initialised. Use ./team add coder to grow it." >&2; exit 2; }
 
-if [ -e po ]; then
-  echo "error: $DIR/po already exists — workspace looks initialised. Use ./team add coder to grow it." >&2
-  exit 2
-fi
+[ -n "$NAME" ] || NAME="$(basename "$URL" .git)"
+HUMAN="$(git config --global user.name 2>/dev/null || git config user.name 2>/dev/null || echo 'the human')"
 
-# roles: folder | display name for git author
-roles=("po|Product Owner (Fable 5.1)" "architect|Architect (Fable 5.1)" "coder|Coder (Opus 5)" "reviewer|Reviewer (Codex)")
-
-clone_role() {
-  local folder="$1" author="$2"
-  git clone -q "$URL" "$folder" 2>&1 | grep -v -e 'cloned an empty repository' -e 'remote HEAD refers to nonexistent' || true
-  git -C "$folder" config user.name "$author"
-  # a freshly-pushed remote may not have HEAD set yet; check out the default branch explicitly
-  if [ -n "${DEFAULT:-}" ] && ! git -C "$folder" rev-parse --verify HEAD >/dev/null 2>&1; then
-    git -C "$folder" checkout -q "$DEFAULT" 2>/dev/null || true
-  fi
-  echo "cloned $folder/  (author: $author)"
-}
-
-# 1. first clone, scaffold, push
-IFS='|' read -r folder author <<< "${roles[0]}"
-clone_role "$folder" "$author"
-cd "$folder"
-
-HUMAN="$(git config --global user.name 2>/dev/null || echo 'the human')"
-
-if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
-  git checkout -q -b main
-  DEFAULT=main
-else
+# default branch: existing repo → origin/HEAD; empty repo → main
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
   DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
   [ -n "$DEFAULT" ] || DEFAULT="$(git rev-parse --abbrev-ref HEAD)"
+else
+  git checkout -q -b main 2>/dev/null || true
+  DEFAULT=main
 fi
 
+echo "agent-team $SKILL_VERSION — project: $NAME, human: $HUMAN, workspace: $WS"
 echo
 bash "$SKILL_DIR/scripts/scaffold.sh" --name "$NAME" --human "$HUMAN" --version "$SKILL_VERSION"
+
+git config user.name "Product Owner (Fable 5.1)"
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
   git -c user.name="$HUMAN" commit -q -m "team: scaffold agent team ($SKILL_VERSION)
@@ -88,25 +63,30 @@ if [ -n "$(git status --porcelain)" ]; then
   git push -q -u origin "$DEFAULT"
   echo "pushed scaffold to origin/$DEFAULT"
 else
-  echo "repo already scaffolded; nothing to push"
+  echo "nothing new to commit"
 fi
-cd "$DIR"
 
-# 2. the other clones
+# sibling clones
 echo
-for r in "${roles[@]:1}"; do
+for r in "architect|Architect (Fable 5.1)" "coder|Coder (Opus 5)" "reviewer|Reviewer (Codex)"; do
   IFS='|' read -r folder author <<< "$r"
-  clone_role "$folder" "$author"
+  if [ -d "$WS/$folder" ]; then echo "exists: $folder/ (left alone)"; continue; fi
+  git clone -q --recurse-submodules "$URL" "$WS/$folder" 2>&1 | grep -v -e 'cloned an empty' -e 'nonexistent ref' || true
+  if ! git -C "$WS/$folder" rev-parse --verify HEAD >/dev/null 2>&1; then
+    git -C "$WS/$folder" checkout -q "$DEFAULT" && git -C "$WS/$folder" submodule update -q --init --recursive
+  fi
+  git -C "$WS/$folder" config user.name "$author"
+  echo "cloned $folder/  (author: $author)"
 done
 
-# 3. launcher
-sed -e "s|{{URL}}|$URL|g" -e "s|{{DEFAULT}}|$DEFAULT|g" "$SKILL_DIR/assets/workspace/team" > team
-chmod +x team
+# launcher
+sed -e "s|{{URL}}|$URL|g" -e "s|{{DEFAULT}}|$DEFAULT|g" "$SKILL_DIR/workspace/team" > "$WS/team"
+chmod +x "$WS/team"
 
 echo
-echo "workspace ready: $DIR"
+echo "workspace ready: $WS"
 echo
-echo "  cd $DIR"
+echo "  cd $WS"
 echo "  ./team po          # talk here"
 echo "  ./team architect   # nudge: \"check the board\""
 echo "  ./team coder       # nudge: \"check the board\""
