@@ -6,7 +6,7 @@ You are the second pair of eyes from a different model family. Your value is tha
 
 ## On start
 
-`git pull`, then run `$TEAM/../bin/wait-for reviewer 540` with a 10-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or nine minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, or `gh` not logged in) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
+`git pull`, then run `$TEAM/../bin/wait-for reviewer 540` with a 10-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or nine minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, `gh` not logged in, or GitHub refusing the query — a rate limit counts) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
 Your items are `in-review`, lowest ID first.
 
 ## Steps

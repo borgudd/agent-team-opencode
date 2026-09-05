@@ -6,6 +6,7 @@
 #   planned            plan on main, no branch yet                → coder
 #   needs-replan       coder note newer than the plan             → architect
 #   in-progress        remote branch exists, no PR                → coder
+#   unknown            branch exists but GitHub could not be asked → nobody (look, don't work)
 #   in-review          PR open, no review yet or new commits since → reviewer
 #   changes-requested  review file on the branch says so           → coder
 #   approved           review file on the branch says so           → human (merge)
@@ -24,11 +25,27 @@ DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed '
 [ -n "$DEFAULT" ] || DEFAULT=main
 MAIN="origin/$DEFAULT"
 
+# Every PR in the repo, in one query. It used to be one `gh pr list` per story,
+# which is a GraphQL call per story per run: a thirty-story backlog polled by
+# four roles every ninety seconds spends an API budget in an afternoon, and what
+# happens when it runs out is worse than slowness — see below.
 have_gh=0
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+gh_why=""
+prs=""
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+  gh_why="no gh"
+  echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as unknown" >&2
+elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName \
+            --jq '.[] | [.headRefName, .number, .state] | @tsv' 2>/dev/null)"; then
   have_gh=1
 else
-  echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as in-progress" >&2
+  # The distinction that matters. A failed query and a repo with no PRs both
+  # come back empty, and reading a failure as "no PR yet" hands every merged
+  # story back to the Coder as fresh work. Rate-limit exhaustion did exactly
+  # that: thirty-one `done` stories turned into thirty-one `in-progress` rows
+  # in the Coder's lane, with no warning, because the error was swallowed.
+  gh_why="gh failed"
+  echo "warning: gh could not list PRs (rate limit? network?) — PR states unknown; branches show as unknown" >&2
 fi
 
 stories="$(git ls-tree -r --name-only "$MAIN" -- .team/backlog/ 2>/dev/null | grep -E '/[0-9]{3}-.*\.md$' | sort)"
@@ -55,14 +72,15 @@ while IFS= read -r story; do
   elif [ -z "$branch" ]; then
     status=planned; next=coder; where="$plan"
   elif [ "$have_gh" -eq 0 ]; then
-    status=in-progress; next="coder?"; where="$branch (no gh)"
+    # Not `in-progress`: we do not know, and `next` must not name a role, or an
+    # unattended Coder picks the row up. `wait-for` matches the role exactly.
+    status=unknown; next="—"; where="$branch ($gh_why)"
   else
-    pr="$(gh pr list --head "$branch" --state all --limit 1 \
-          --json number,state,url --jq '.[0] | [.number, .state, .url] | @tsv' 2>/dev/null)"
+    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3; exit}')"
     if [ -z "$pr" ]; then
       status=in-progress; next=coder; where="$branch"
     else
-      IFS=$'\t' read -r num state url <<< "$pr"
+      IFS=$'\t' read -r num state <<< "$pr"
       where="#$num"
       case "$state" in
         MERGED) status=done; next="—" ;;
