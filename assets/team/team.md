@@ -4,10 +4,10 @@ human: {{HUMAN}}
 project: {{PROJECT_NAME}}
 
 models:
-  product-owner: claude-fable-5-1
-  architect: claude-fable-5-1
-  coder: opus
-  reviewer: codex (GPT, high reasoning effort)
+  product-owner: claude (opus)
+  architect: claude (opus)
+  coder: claude (opus)
+  reviewer: opencode (gpt-5.6-terra via ChatGPT OAuth)
 
 merge: human
 

@@ -1,6 +1,6 @@
 ---
 name: agent-team
-description: A multi-model agent team — Product Owner and Architect on Fable 5.1, Coder on Opus 5, Reviewer on Codex (GPT) — that lives in the project as a pinned git submodule and works from separate clones, one terminal per role, coordinating only through git. /agent-team init sets up the workspace, /agent-team status shows the board, /agent-team upgrade bumps the pinned version.
+description: A multi-model agent team — Product Owner, Architect and Coder on Claude Opus 5, Reviewer on OpenCode (GPT) — that lives in the project as a pinned git submodule and works from separate clones, one terminal per role, coordinating only through git. /agent-team init sets up the workspace, /agent-team status shows the board, /agent-team upgrade bumps the pinned version.
 argument-hint: "init [--name project] | status | upgrade"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
@@ -13,17 +13,17 @@ One repo, one clone per role, one terminal per clone. All communication is git. 
 ```
 <workspace>/
 ├── team          launcher: ./team po | architect | coder [N] | reviewer | status | log | add coder
-├── po/           clone · Product Owner · Fable 5.1 · writes .team/backlog/  on main
-├── architect/    clone · Architect     · Fable 5.1 · writes .team/plans/    on main
-├── coder/        clone · Coder         · Opus 5    · code on feat/NNN-*, PRs, .team/notes/
-└── reviewer/     clone · Reviewer      · Codex     · .team/reviews/ on the PR branch + gh pr review
+├── po/           clone · Product Owner · Opus 5 · writes .team/backlog/  on main
+├── architect/    clone · Architect     · Opus 5 · writes .team/plans/    on main
+├── coder/        clone · Coder         · Opus 5 · code on feat/NNN-*, PRs, .team/notes/
+└── reviewer/     clone · Reviewer      · OpenCode (GPT) · .team/reviews/ on the PR branch + gh pr review
 ```
 
 Inside every clone:
 
 ```
 .claude/skills/agent-team/   this submodule: SKILL.md, bin/, team/{TEAM.md,roles,templates}
-AGENTS.md                    project conventions + pointer to team/TEAM.md   (Codex reads this)
+AGENTS.md                    project conventions + pointer to team/TEAM.md   (OpenCode reads this)
 CLAUDE.md                    "read AGENTS.md"
 .team/                       team.md (human, models, pinned version) + the lanes: backlog/ plans/ notes/ reviews/
 ```
@@ -50,7 +50,7 @@ cd <workspace>
 ./team board       # the board, auto-refreshing
 ```
 
-`./team po` etc. start a single role by hand. Codex should run with high reasoning effort.
+`./team po` etc. start a single role by hand. The Reviewer's model and permissions are pinned in `~/.config/opencode/agent-team-reviewer.json` (via `OPENCODE_CONFIG`).
 
 ## `status`
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Product Owner (Fable 5.1). This is the one you talk to.
+# Product Owner (Opus 5). This is the one you talk to.
+# Prefer the self-updated claude (~/.local/bin) over an older npm/brew copy,
+# which may reject newer model IDs. Falls back to the PATH `claude` otherwise.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" po product-owner.md \
-  claude --model claude-fable-5-1 --append-system-prompt-file ROLEFILE "$@"
+  env PATH="$HOME/.local/bin:$PATH" \
+  claude --model opus --append-system-prompt-file ROLEFILE "$@"

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Coder (Opus 5). Picks up planned stories and review feedback.
+# Prefer the self-updated claude (~/.local/bin) over an older npm/brew copy,
+# which may reject newer model IDs. Falls back to the PATH `claude` otherwise.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" coder coder.md \
+  env PATH="$HOME/.local/bin:$PATH" \
   claude --model opus --append-system-prompt-file ROLEFILE "$@"

@@ -4,7 +4,7 @@
 #   ./team po                start the Product Owner (talk to this one)
 #   ./team architect         start the Architect
 #   ./team coder [N]         start the Coder (N=2 → coder-2/)
-#   ./team reviewer [N]      start the Reviewer (Codex)
+#   ./team reviewer [N]      start the Reviewer (OpenCode GPT)
 #   ./team add coder|reviewer   clone another coder-N/ or reviewer-N/
 #   ./team status            the board (derived from git + GitHub)
 #   ./team log               recent team activity across all roles
@@ -12,7 +12,7 @@
 #   ./team open [--tmux]     open every role in its own window (macOS Terminal, 2×2 grid) or a tmux session
 #   ./team board             the board, refreshed every 30 s — keep it in a corner
 #
-# Any extra arguments after a role are passed to claude / codex.
+# Any extra arguments after a role are passed to claude / opencode.
 # The team itself lives in each clone at .claude/skills/agent-team (a pinned submodule).
 
 set -uo pipefail
@@ -33,10 +33,10 @@ BIN=".claude/skills/agent-team/bin"
 folder_for() { local role="$1" n="${2:-}"; if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi; }
 author_for() {
   case "$1" in
-    po) echo "Product Owner (Fable 5.1)" ;;
-    architect) echo "Architect (Fable 5.1)" ;;
+    po) echo "Product Owner (Opus 5)" ;;
+    architect) echo "Architect (Opus 5)" ;;
     coder) echo "Coder (Opus 5)" ;;
-    reviewer) echo "Reviewer (Codex)" ;;
+    reviewer) echo "Reviewer (OpenCode GPT)" ;;
   esac
 }
 

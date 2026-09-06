@@ -1,7 +1,7 @@
 # agent-team
 
 A Claude Code skill that runs a multi-model agent team on a GitHub repo:
-Product Owner and Architect on Fable 5.1, Coder on Opus 5, Reviewer on Codex (GPT).
+Product Owner, Architect and Coder on Claude Opus 5, Reviewer on OpenCode (GPT via ChatGPT OAuth).
 The team lives **in the project** as a pinned git submodule. One clone per role, one terminal per clone, all communication through git. Status is derived, never written. The human merges.
 
 See [SKILL.md](SKILL.md) for the design and [team/TEAM.md](team/TEAM.md) for the rulebook the agents get.
@@ -11,7 +11,7 @@ See [SKILL.md](SKILL.md) for the design and [team/TEAM.md](team/TEAM.md) for the
 One command, from nothing to a running workspace:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/fltman/agent-team/main/new-project.sh | bash -s -- myproj
+curl -sL https://raw.githubusercontent.com/borgudd/agent-team-opencode/main/new-project.sh | bash -s -- myproj
 ```
 
 It creates the GitHub repo if needed (private by default, `--public` to change), makes `./myproj-team/`, clones `po/`, pins the newest tagged team version as a submodule, scaffolds, pushes, clones `architect/`, `coder/`, `reviewer/`, writes `./team` — and opens the four roles, each in its own window: a 2×2 grid of Terminal windows on macOS, a 2×2 tmux session elsewhere (`--no-open` to skip). From a clone of this repo, `./new-project.sh myproj` does the same.

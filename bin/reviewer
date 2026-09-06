@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Reviewer (Codex / GPT). Reviews open PRs.
-# Codex reads AGENTS.md on its own; the prompt tells it which role it has.
-# Set reasoning effort to high in ~/.codex/config.toml — this is where the thinking pays.
+# Reviewer (OpenCode / ChatGPT). Reviews open PRs.
+# OpenCode reads AGENTS.md on its own; the prompt tells it which role it has.
 #
-# Codex's default sandbox (workspace-write) blocks the network, which silently breaks
-# git fetch, gh and therefore the board. The reviewer works in its own clone and needs
-# git + gh, so it runs with the sandbox open. Override with AGENT_TEAM_CODEX_FLAGS.
-: "${AGENT_TEAM_CODEX_FLAGS:=--sandbox danger-full-access --ask-for-approval on-request}"
-# shellcheck disable=SC2086
+# The Claude roles stay resident in the pane; OpenCode must too, so use
+# `opencode run --interactive`, which keeps a live split-footer session after
+# the initial message. Plain `opencode "<prompt>"` is wrong — the positional
+# argument is a *project path*, not a prompt, in current OpenCode versions.
+#
+# Tool permissions come from the reviewer's dedicated config file
+# (OPENCODE_CONFIG), never `--auto`: OpenCode allows everything by default, so
+# that config explicitly allows only edit/bash/webfetch and asks for the rest.
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
-  codex $AGENT_TEAM_CODEX_FLAGS "You are the Reviewer. Read AGENTS.md, then your role file at ROLEFILE, and follow its \"On start\" section." "$@"
+  env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-reviewer.json" \
+  opencode run --interactive \
+  'You are the Reviewer. Read AGENTS.md, then your role file at ROLEFILE, and follow its "On start" section.' "$@"
