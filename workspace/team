@@ -76,7 +76,11 @@ case "$cmd" in
   open)
     mode="terminal"; [ "${1:-}" = "--tmux" ] && mode=tmux
     [ "$(uname)" = "Darwin" ] || mode=tmux
-    name="$(basename "$WS")"; name="${name%-team}"
+    # Use the full workspace name for the tmux session. Stripping "-team" made
+    # a "local-assistant-team" workspace create a session called "local-assistant",
+    # which tmux matches by prefix against an existing "local-assistant-claude"
+    # session, silently attaching the team to the wrong terminal.
+    name="$(basename "$WS")"
     roles=(po architect coder reviewer)
     if [ "$mode" = tmux ]; then
       command -v tmux >/dev/null || { echo "tmux not found (brew install tmux), or run ./team <role> in four terminals" >&2; exit 1; }
