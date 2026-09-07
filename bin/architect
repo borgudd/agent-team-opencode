@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Architect (Opus 5). Picks up stories without a plan.
-# Prefer the self-updated claude (~/.local/bin) over an older npm/brew copy,
-# which may reject newer model IDs. Falls back to the PATH `claude` otherwise.
+# Architect (GPT-6-astra). Picks up stories without a plan.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" architect architect.md \
-  env PATH="$HOME/.local/bin:$PATH" \
-  claude --model opus --append-system-prompt-file ROLEFILE "$@"
+  env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-architect.json" \
+  opencode run --interactive \
+  'You are the Architect. Read AGENTS.md, then your role file at ROLEFILE, and follow its "On start" section.' "$@"

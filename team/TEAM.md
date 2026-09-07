@@ -10,7 +10,7 @@ The team itself is a git submodule pinned to a version; the project's own files 
 | Role | Runs on | Lane (the only place you write) | Never |
 |---|---|---|---|
 | Product Owner | Opus 5 | `.team/backlog/` on main | plans, code |
-| Architect | Opus 5 | `.team/plans/` on main | production code |
+| Architect | GPT-6-astra (via Opencode) | `.team/plans/` on main | production code |
 | Coder | Opus 5 | code + tests on `feat/NNN-*`, PRs, `.team/notes/` on main | scope changes, merging |
 | Reviewer | OpenCode (GPT) | `.team/reviews/` on the PR branch, reviews on GitHub | rewriting the code |
 | Human | — | merging | — |
