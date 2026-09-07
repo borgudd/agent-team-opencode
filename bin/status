@@ -144,8 +144,6 @@ while IFS= read -r story; do
   ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where")
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
-  # tokens are kept only if they are exactly three digits, and only if the ID exists.
-  # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
   # tokens are kept only if they are exactly three digits; unknown IDs are filtered
   # later (dep-missing) once the full set of story IDs is known.
   dl=""
