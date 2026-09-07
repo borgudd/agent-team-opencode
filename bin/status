@@ -13,6 +13,13 @@
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
+#
+#   blocked            a declared dependency is not done yet      → nobody (it waits)
+#   dep-missing        depends-on names a story that does not exist → po
+#   dep-cycle          the declared dependencies form a cycle      → po
+# A story or plan may declare `depends-on: 001, 002` in its frontmatter. Only `done`
+# satisfies a dependency — not `approved`, not `closed`, and not `unknown`, so a board that
+# cannot reach GitHub blocks rather than releasing work (the same lesson as `unknown`).
 
 set -uo pipefail
 TSV=0; [ "${1:-}" = "--tsv" ] && TSV=1   # machine-readable: id<TAB>status<TAB>title<TAB>next<TAB>where, no header
@@ -54,7 +61,10 @@ if [ -z "$stories" ]; then [ "$TSV" -eq 1 ] || echo "backlog is empty"; exit 0; 
 first_line() { git show "$MAIN:$1" 2>/dev/null | sed -n "s/^$2: *//p" | head -1; }
 ctime()      { git log -1 --format=%ct "$MAIN" -- "$1" 2>/dev/null || echo 0; }
 
-[ "$TSV" -eq 1 ] || printf '%-4s %-18s %-38s %-10s %s\n' ID STATUS TITLE NEXT WHERE
+# Two passes. Dependency gating cannot decide a row until every other row's status is
+# known, so pass one computes the intrinsic status exactly as before and holds it; pass two
+# rewrites only the rows whose dependencies are not satisfied.
+rows="$(mktemp)"; trap 'rm -f "$rows"' EXIT
 while IFS= read -r story; do
   base="$(basename "$story" .md)"; id="${base%%-*}"
   title="$(first_line "$story" title)"
@@ -109,6 +119,68 @@ while IFS= read -r story; do
       esac
     fi
   fi
+  # One line, comma-separated: `depends-on: 001, 002`. Deliberately not a YAML list —
+  # nothing here parses YAML, and pretending otherwise would read an empty list from a
+  # declaration that looked right, which fails open.
+  deps="$(first_line "$story" depends-on)"
+  plan_deps=""; [ -n "$plan" ] && plan_deps="$(first_line "$plan" depends-on)"
+  # The union of both: a dependency first discovered while planning is the Architect's to
+  # record, in the plan, without writing into the PO's story.
+  deps="$(printf '%s,%s' "$deps" "$plan_deps" | tr ',' '\n' | tr -d ' ' | grep -E '^[0-9]{3}$' | sort -u | tr '\n' ',' | sed 's/,$//')"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$status" "$title" "$next" "$where" "$deps" >> "$rows"
+done <<< "$stories"
+
+status_of() { awk -F'\t' -v want="$1" '$1==want {print $2; exit}' "$rows"; }
+deps_of()   { awk -F'\t' -v want="$1" '$1==want {print $6; exit}' "$rows"; }
+
+# Is `target` reachable from `from` by following declarations? Used only to find cycles, so
+# it walks the declared graph and ignores statuses: a cycle among finished stories is still
+# a broken declaration. Bash 3.2 here — no associative arrays — so `seen` is a delimited
+# string and the frontier is a plain list.
+reaches() {
+  local from="$1" target="$2" seen="," frontier="$1" next_frontier node dep
+  while [ -n "$frontier" ]; do
+    next_frontier=""
+    for node in $frontier; do
+      case "$seen" in *",$node,"*) continue ;; esac
+      seen="$seen$node,"
+      for dep in $(deps_of "$node" | tr ',' ' '); do
+        [ "$dep" = "$target" ] && return 0
+        next_frontier="$next_frontier $dep"
+      done
+    done
+    frontier="$next_frontier"
+  done
+  return 1
+}
+
+[ "$TSV" -eq 1 ] || printf '%-4s %-18s %-38s %-10s %s\n' ID STATUS TITLE NEXT WHERE
+while IFS=$'\t' read -r id status title next where deps; do
+  if [ -n "$deps" ]; then
+    for dep in $(printf '%s' "$deps" | tr ',' ' '); do
+      dep_status="$(status_of "$dep")"
+      if [ "$dep" = "$id" ] || { [ -n "$dep_status" ] && reaches "$dep" "$id"; }; then
+        # Reported rather than left to block forever: a story that can never be
+        # unblocked is a declaration to fix, not a queue to wait in.
+        status=dep-cycle; next=po; where="depends-on $dep, which depends back on $id"; break
+      fi
+      if [ -z "$dep_status" ]; then
+        # Never treated as satisfied: an unknown dependency is a wrong declaration.
+        status=dep-missing; next=po; where="depends-on $dep (no such story)"; break
+      fi
+      if [ "$dep_status" != "done" ]; then
+        # Only `done` satisfies. `unknown` lands here too, which is how a board that
+        # cannot reach GitHub holds dependent work instead of releasing it.
+        case "$status" in
+          # Once a branch exists the work is underway; blocking then would pull a story
+          # out of review rather than stopping it being started. The gate is on starting.
+          ready|planned|needs-replan|needs-split)
+            status=blocked; next="—"; where="blocked by $dep ($dep_status)" ;;
+        esac
+        break
+      fi
+    done
+  fi
   if [ "$TSV" -eq 1 ]; then printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$status" "$title" "$next" "$where"
   else printf '%-4s %-18s %-38s %-10s %s\n' "$id" "$status" "${title:0:38}" "$next" "$where"; fi
-done <<< "$stories"
+done < "$rows"

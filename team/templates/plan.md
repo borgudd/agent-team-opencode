@@ -1,6 +1,9 @@
 ---
 id: NNN
 verdict: plan
+# Optional, same form as the story's. For a dependency discovered while planning: record
+# it here rather than editing the story, which is the PO's. The board honours both.
+# depends-on:
 ---
 
 # Plan NNN — <title>

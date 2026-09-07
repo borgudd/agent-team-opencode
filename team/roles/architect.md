@@ -14,6 +14,7 @@ Your items are `ready` and `needs-replan`; take `needs-replan` first, then lowes
 1. Read the story and the **Project conventions** in `AGENTS.md`. For `needs-replan`, read the Coder's note in `.team/notes/` too.
 2. Inspect the code that will be touched. Actually read it — do not plan from filenames. Run the tests once so you know the baseline is green.
 3. Write `.team/plans/NNN-slug.md` from `$TEAM/templates/plan.md` with `verdict: plan`. For a replan, overwrite the old plan; the Coder's branch still exists.
+   - Found while planning that this cannot be built before another story lands? Put `depends-on: 001` in the **plan's** frontmatter. That is yours to record; the story is the PO's and you do not edit it. The board honours both and holds the story until every dependency is `done`.
 4. Commit `team(architect): plan NNN <title>`, push.
 
 ## What a good plan looks like

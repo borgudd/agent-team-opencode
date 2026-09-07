@@ -45,6 +45,16 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
 | it says `verdict: approve` | `approved` — human merges |
 | PR merged | `done` |
+| a declared `depends-on:` story is not `done` yet | `blocked` — nobody; it waits |
+| `depends-on:` names a story that does not exist | `dep-missing` — PO's turn |
+| the declared dependencies form a cycle | `dep-cycle` — PO's turn |
+
+A story or a plan may declare `depends-on: 001, 002`, and the board honours the union of
+both. Only `done` satisfies a dependency — not `approved`, not `closed`, and not
+`unknown`, so a board that cannot reach GitHub holds dependent work rather than releasing
+it. Blocking applies before the work starts (`ready`, `planned`, `needs-split`,
+`needs-replan`); once a branch exists the story keeps its normal status, because the point
+is to stop it being *started*, not to pull it out of review halfway.
 
 Because every role writes in a different folder or on a different branch, there is nothing to conflict on. `git log -- .team/` is the team's history; `git log --author=Coder` is one role's.
 
