@@ -8,8 +8,11 @@
 # argument is a *project path*, not a prompt, in current OpenCode versions.
 #
 # Tool permissions come from the reviewer's dedicated config file
-# (OPENCODE_CONFIG), never `--auto`: OpenCode allows everything by default, so
-# that config explicitly allows only edit/bash/webfetch and asks for the rest.
+# (OPENCODE_CONFIG): `"permission": { "*": "allow" }`. OpenCode auto-rejects any
+# `ask` request in unattended mode, and a rejected tool call aborts the process —
+# which killed the reviewer mid-review several times when the config only
+# allow-listed a fixed set. `"*": "allow"` is scoped to this one role's config,
+# never `--auto`, and keeps the reviewer running unprompted.
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
   env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-reviewer.json" \
   opencode run --interactive \
