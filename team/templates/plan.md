@@ -1,6 +1,7 @@
 ---
 id: NNN
 verdict: plan
+# depends-on: NNN      # optional when discovered while planning; comma-separated. See team/TEAM.md.
 ---
 
 # Plan NNN — <title>

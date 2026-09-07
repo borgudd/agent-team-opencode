@@ -45,6 +45,11 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
 | it says `verdict: approve` | `approved` — human merges |
 | PR merged | `done` |
+| a declared dependency (story or plan `depends-on:`) is not `done` yet | `blocked` — nobody (wait; unblocks itself) |
+| `depends-on:` names a story that does not exist | `dep-missing` — PO fixes the declaration |
+| declared dependencies form a loop (including a story that depends on itself) | `dep-cycle` — PO fixes the declaration |
+
+A story or plan can declare `depends-on: 001, 002` — one line, comma-separated, three-digit IDs. Only `done` satisfies a dependency; a dependency that GitHub cannot be queried for, or that is itself `blocked`, counts as not done, so a blocked story never degrades into work. A dependency discovered while planning goes in the plan's frontmatter (never by editing the story).
 
 Because every role writes in a different folder or on a different branch, there is nothing to conflict on. `git log -- .team/` is the team's history; `git log --author=Coder` is one role's.
 

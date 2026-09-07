@@ -1,6 +1,7 @@
 ---
 id: NNN
 title:
+# depends-on: NNN      # optional: story IDs this depends on, comma-separated. See team/TEAM.md.
 ---
 
 ## Outcome

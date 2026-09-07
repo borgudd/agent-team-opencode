@@ -13,7 +13,15 @@
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
-
+#   blocked            a declared dependency is not `done` yet    → nobody (wait)
+#   dep-missing        `depends-on:` names a story that does not exist → po
+#   dep-cycle          declared dependencies form a loop (incl. self) → po
+#
+# A story — or a plan, discovered while planning — may declare `depends-on: 001, 002`
+# in its frontmatter: one line, comma-separated, plain IDs; nothing here parses YAML.
+# Only `done` satisfies a dependency. Unknown, closed, blocked and error rows all count
+# as not done, so a dependency GitHub cannot be asked about (AC8) blocks rather than
+# slips through as workable — the same lesson this script wrote down below for PRs.
 set -uo pipefail
 TSV=0; [ "${1:-}" = "--tsv" ] && TSV=1   # machine-readable: id<TAB>status<TAB>title<TAB>next<TAB>where, no header
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -53,8 +61,32 @@ if [ -z "$stories" ]; then [ "$TSV" -eq 1 ] || echo "backlog is empty"; exit 0; 
 
 first_line() { git show "$MAIN:$1" 2>/dev/null | sed -n "s/^$2: *//p" | head -1; }
 ctime()      { git log -1 --format=%ct "$MAIN" -- "$1" 2>/dev/null || echo 0; }
+idxof()      { local i; for i in "${!ids[@]}"; do [ "${ids[$i]}" = "$1" ] && { echo "$i"; return; }; done; }
+in_cycle()   { # $1 = start index; true if a declared cycle passes through it (incl. self)
+  # Forward reachability from start: node is in a cycle iff a successor eventually
+  # points back at start. A plain indexed-array BFS — safe on bash 3.2.
+  local start=$1 i j ji head=0
+  local seen=()
+  local q=("$start")
+  seen[$start]=1
+  while [ "$head" -lt "${#q[@]}" ]; do
+    i="${q[$head]}"; head=$((head + 1))
+    for j in ${deps[$i]}; do
+      ji="$(idxof "$j")"; [ -n "$ji" ] || continue
+      if [ "$ji" -eq "$start" ]; then return 0; fi
+      [ "${seen[$ji]:-0}" -eq 1 ] && continue
+      seen[$ji]=1; q+=("$ji")
+    done
+  done
+  return 1
+}
 
 [ "$TSV" -eq 1 ] || printf '%-4s %-18s %-38s %-10s %s\n' ID STATUS TITLE NEXT WHERE
+
+# ---- pass one: the intrinsic status of every story, exactly as before. Dependency
+# gating cannot happen inline: a row's verdict depends on the *other* rows, so every
+# intrinsic status must be known before any final row is decided. Collect it all first.
+ids=(); titles=(); sts=(); nxs=(); whs=(); deps=(); miss=()
 while IFS= read -r story; do
   base="$(basename "$story" .md)"; id="${base%%-*}"
   title="$(first_line "$story" title)"
@@ -109,6 +141,97 @@ while IFS= read -r story; do
       esac
     fi
   fi
-  if [ "$TSV" -eq 1 ]; then printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$status" "$title" "$next" "$where"
-  else printf '%-4s %-18s %-38s %-10s %s\n' "$id" "$status" "${title:0:38}" "$next" "$where"; fi
+  ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where")
+
+  # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
+  # tokens are kept only if they are exactly three digits, and only if the ID exists.
+  # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
+  # tokens are kept only if they are exactly three digits; unknown IDs are filtered
+  # later (dep-missing) once the full set of story IDs is known.
+  dl=""
+  for tok in $(printf '%s %s\n' "$(first_line "$story" depends-on)" "$([ -n "$plan" ] && first_line "$plan" depends-on)" | tr ',' ' '); do
+    [ "${#tok}" -eq 3 ] && case "$tok" in *[!0-9]*) ;; *) dl="$dl $tok" ;; esac
+  done
+  deps+=("${dl# }"); miss+=("")
 done <<< "$stories"
+
+n="${#ids[@]}"
+idset=" ${ids[*]} "
+for i in $(seq 0 $((n - 1))); do
+  keep=""; gone=""
+  for tok in ${deps[$i]}; do
+    case " $idset " in
+      *" $tok "*) keep="$keep $tok" ;;
+      *)               gone="$gone $tok" ;;
+    esac
+  done
+  deps[$i]="${keep# }"; miss[$i]="${gone# }"
+done
+
+# ---- pass two: dependency gating. Errors are final and beat every other status —
+# a wrong declaration (missing ID, or a cycle) is fixed by the PO and must not read
+# as `blocked`, or the PO never sees it. Only `done` satisfies a dependency;
+# `unknown`/`closed`/`blocked`/an error all fail closed.
+cys=()
+for i in $(seq 0 $((n - 1))); do
+  if in_cycle "$i"; then cys[$i]=1; else cys[$i]=0; fi
+done
+
+# Error rows, decided once. `dep-missing` is named first when both apply.
+err=()
+for i in $(seq 0 $((n - 1))); do
+  fst[$i]="${sts[$i]}"; fnx[$i]="${nxs[$i]}"; fwh[$i]="${whs[$i]}"
+  err[$i]=0
+  case "${sts[$i]}" in done|closed) continue ;; esac
+  if [ -n "${miss[$i]}" ]; then
+    fst[$i]=dep-missing; fnx[$i]=po; fwh[$i]="missing: ${miss[$i]}"; err[$i]=1
+  elif [ "${cys[$i]}" -eq 1 ]; then
+    fst[$i]=dep-cycle; fnx[$i]=po; fwh[$i]="cycle with: ${deps[$i]}"; err[$i]=1
+  fi
+done
+
+# `blocked` (non-error, non-done) computed to a fixed point, so an ignored story
+# that depends on another blocked story is caught even when its dependency has a
+# higher ID and so comes later in the loop.
+blk=()
+for i in $(seq 0 $((n - 1))); do blk[$i]=0; done
+changed=1; rounds=0
+while [ "$changed" -eq 1 ] && [ "$rounds" -le "$n" ]; do
+  changed=0; rounds=$((rounds + 1))
+  for i in $(seq 0 $((n - 1))); do
+    [ "${err[$i]}" -eq 1 ] && continue
+    [ "${blk[$i]}" -eq 1 ] && continue
+    case "${sts[$i]}" in done|closed) continue ;; esac
+    for tok in ${deps[$i]}; do
+      ji="$(idxof "$tok")"
+      if [ -n "$ji" ] && { [ "${blk[$ji]}" -eq 1 ] || [ "${fst[$ji]}" != done -a "${sts[$ji]}" != done ]; }; then
+        blk[$i]=1; changed=1; break
+      fi
+    done
+  done
+done
+
+# Label settling for blocked rows. Run the where-building twice so nested labels
+# read each other's final status (an ignored `blocked by 016 (…)` sees 016's final
+# row, not its intrinsic one). Error rows keep their final status untouched.
+for pass in 1 2; do
+  for i in $(seq 0 $((n - 1))); do
+    [ "${err[$i]}" -eq 1 ] && continue
+    case "${sts[$i]}" in done|closed) continue ;; esac
+    if [ "${blk[$i]}" -eq 1 ]; then
+      depsw=""
+      for tok in ${deps[$i]}; do
+        ji="$(idxof "$tok")"; [ -n "$ji" ] || continue
+        if [ "${blk[$ji]}" -eq 1 ] || { [ "${fst[$ji]}" != done -a "${sts[$ji]}" != done ] && [ "${err[$ji]}" -eq 0 ]; }; then
+          depsw="$depsw $tok(${fst[$ji]})"
+        fi
+      done
+      fst[$i]=blocked; fnx[$i]=—; fwh[$i]="blocked by:${depsw}"
+    fi
+  done
+done
+
+for i in $(seq 0 $((n - 1))); do
+  if [ "$TSV" -eq 1 ]; then printf '%s\t%s\t%s\t%s\t%s\n' "${ids[$i]}" "${fst[$i]}" "${titles[$i]}" "${fnx[$i]}" "${fwh[$i]}"
+  else printf '%-4s %-18s %-38s %-10s %s\n' "${ids[$i]}" "${fst[$i]}" "${titles[$i]:0:38}" "${fnx[$i]}" "${fwh[$i]}"; fi
+done
