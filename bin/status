@@ -180,7 +180,9 @@ err=()
 for i in $(seq 0 $((n - 1))); do
   fst[$i]="${sts[$i]}"; fnx[$i]="${nxs[$i]}"; fwh[$i]="${whs[$i]}"
   err[$i]=0
-  case "${sts[$i]}" in done|closed) continue ;; esac
+  # Decided for every story, done/closed included: a cycle or a missing ID among
+  # finished stories is still a broken declaration and must be reported (plan 018),
+  # not masked by an intrinsic terminal status.
   if [ -n "${miss[$i]}" ]; then
     fst[$i]=dep-missing; fnx[$i]=po; fwh[$i]="missing: ${miss[$i]}"; err[$i]=1
   elif [ "${cys[$i]}" -eq 1 ]; then
@@ -202,7 +204,10 @@ while [ "$changed" -eq 1 ] && [ "$rounds" -le "$n" ]; do
     case "${sts[$i]}" in done|closed) continue ;; esac
     for tok in ${deps[$i]}; do
       ji="$(idxof "$tok")"
-      if [ -n "$ji" ] && { [ "${blk[$ji]}" -eq 1 ] || [ "${fst[$ji]}" != done -a "${sts[$ji]}" != done ]; }; then
+      # Only `done` satisfies a dependency — and `fst` already folds error rows
+      # in, so a dep flagged dep-cycle/dep-missing (even when its own story is
+      # intrinsically done) still counts as not done.
+      if [ -n "$ji" ] && { [ "${blk[$ji]}" -eq 1 ] || [ "${fst[$ji]}" != done ]; }; then
         blk[$i]=1; changed=1; break
       fi
     done
@@ -220,7 +225,7 @@ for pass in 1 2; do
       depsw=""
       for tok in ${deps[$i]}; do
         ji="$(idxof "$tok")"; [ -n "$ji" ] || continue
-        if [ "${blk[$ji]}" -eq 1 ] || { [ "${fst[$ji]}" != done -a "${sts[$ji]}" != done ] && [ "${err[$ji]}" -eq 0 ]; }; then
+        if [ "${blk[$ji]}" -eq 1 ] || [ "${fst[$ji]}" != done ]; then
           depsw="$depsw $tok(${fst[$ji]})"
         fi
       done
