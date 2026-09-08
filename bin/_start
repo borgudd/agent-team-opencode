@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # shared preamble for the role launchers: sync, resolve role file, sanity-check the clone, run
 # usage: _start <role> <role-file-basename> <cmd...>   ("ROLEFILE" in cmd is replaced)
+#
+# Fallbacks: FALLBACK_1, FALLBACK_2, ... each a FULL single command string, tried in order
+# when the preceding command exits with a credit/rate-limit error (detected in stderr).
+# Note: claude roles often keep running while limited (inline spend-limit bubble) instead of
+# exiting — the watchdog handles that case by watching the pane text and respawning the role
+# on its fallback launcher; _start is the exit-code path for when the process does die.
 set -uo pipefail
 role="$1"; rolefile="$2"; shift 2
 ROOT="$(git rev-parse --show-toplevel)" || exit 1
@@ -23,6 +29,49 @@ else
   RF="$SKILL/team/roles/$rolefile"
 fi
 
-args=()
-for a in "$@"; do args+=("${a//ROLEFILE/$RF}"); done
-exec "${args[@]}"
+primary=()
+for a in "$@"; do primary+=("${a//ROLEFILE/$RF}"); done
+
+# Collect fallbacks from FALLBACK_1, FALLBACK_2, ... (each is one full command string)
+fallbacks=()
+i=1
+while true; do
+  var="FALLBACK_$i"
+  val="${!var:-}"
+  [ -z "$val" ] && break
+  fallbacks+=("$val")
+  i=$((i + 1))
+done
+
+is_retryable() {
+  grep -qiE "spend limit|credit limit|rate limit|monthly.*limit|limit resets|usage limit|quota|insufficient|billing|payment required|exceeded|429|503" <<<"$1"
+}
+
+# Run one candidate: exit 0 on success, exit <rc> on hard error, return 3 when retryable.
+exec_one() {
+  local tmp err rc
+  tmp="$(mktemp)"
+  if [ "$1" = _primary ]; then
+    "${primary[@]}" 2>"$tmp"
+  else
+    bash -c "$1" 2>"$tmp"
+  fi
+  rc=$?
+  if [ $rc -eq 0 ]; then rm -f "$tmp"; exit 0; fi
+  err="$(cat "$tmp")"; rm -f "$tmp"
+  if is_retryable "$err"; then
+    echo "[$role] retryable error detected — ${err%%$'\n'*}" >&2
+    return 3
+  fi
+  echo "[$role] exited with code $rc" >&2
+  [ -n "$err" ] && echo "$err" >&2
+  exit $rc
+}
+
+echo "[$role] starting (primary)" >&2
+exec_one _primary || true
+for fb in "${fallbacks[@]}"; do
+  echo "[$role] fallback: ${fb%% *} ..." >&2
+  sleep 2
+  exec_one "$fb" || true
+done

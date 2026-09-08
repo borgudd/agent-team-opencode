@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Architect fallback — opencode gpt-6-astra-fast (the primary architect is gpt-6-astra);
+# used by the watchdog when the OpenAI account is rate-limited on the full model.
+[ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
+exec "$(dirname "$0")/_start" architect architect.md \
+  env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-astra-fast.json" \
+  opencode run --interactive \
+  'You are the Architect. Read AGENTS.md, then your role file at ROLEFILE, and follow its "On start" section.' "$@"

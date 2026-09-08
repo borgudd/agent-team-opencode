@@ -95,6 +95,9 @@ case "$cmd" in
       tmux select-pane -t "$p3" -T reviewer
       tmux select-pane -t "$p0"
       tmux set-option -t "$name" pane-border-status top >/dev/null
+      # Label each pane by its role dir (path-derived at render time, so
+      # claude/opencode overwriting the pane title can't wipe the label).
+      tmux set-option -t "$name" pane-border-format ' #{b:pane_current_path} ' >/dev/null
       exec tmux attach -t "$name"
     fi
     # macOS Terminal.app: four windows tiled 2×2 — PO top-left, Architect top-right, Coder bottom-left, Reviewer bottom-right
@@ -117,6 +120,29 @@ APPLESCRIPT
       i=$(( i + 1 ))
     done
     echo "opened 4 Terminal windows for $name. Board: ./team board"
+    ;;
+  fallback)
+    # Watchdog credit-limit fallback state, in $WS/.fallback/<role> flag files.
+    #   ./team fallback               list roles currently on their fallback model
+    #   ./team fallback reset [role]  clear flags (default all) so the next restart uses primary models
+    d="$WS/.fallback"; mkdir -p "$d"
+    if [ "${1:-}" = reset ]; then
+      r="${2:-}"
+      if [ -n "$r" ]; then
+        rm -f "$d/$r" && echo "cleared fallback for $r — it stays here until its pane restarts"
+      else
+        rm -f "$d"/* 2>/dev/null
+        echo "cleared all fallbacks — roles return to primary models on their next restart"
+      fi
+    else
+      found=0
+      for f in "$d"/*; do
+        [ -e "$f" ] || continue
+        echo "fallback active: $(basename "$f")"
+        found=1
+      done
+      [ "$found" = 0 ] && echo "no fallbacks active"
+    fi
     ;;
   *) sed -n '2,16p' "$0" ;;
 esac
