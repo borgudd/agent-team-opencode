@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Watch the team tmux session and (a) restart any role pane that disappears or dies, and
+# (b) switch a role to its fallback model when its pane shows a credit/rate-limit error.
+#
+# Lifecycle: this process only RUNS while the team is started. `team open` starts it and
+# `team close` stops it (pidfile $WS/.watchdog.pid, log $WS/.watchdog.log). Belt-and-
+# suspenders: if the session disappears while we're up, we log and exit instead of
+# polling forever — a watchdog is never alive without a team.
+#
+# Why pane-text scanning: claude roles stay alive while limited (inline spend-limit bubble),
+# so a fallback can't key off the launcher's exit code — the watchdog watches the pane
+# instead. Roles are identified by their pane's working directory (the -c dirs `team open
+# --tmux` uses), NOT by pane title: claude/opencode overwrite titles.
+#
+# Fallback state: a $WS/.fallback/<role> flag file means "this role is on its fallback model".
+# The watchdog respawns/keeps it on the fallback until the flag is cleared and the pane
+# restarts (see `./team fallback` / `./team fallback reset`).
+export PATH="/opt/homebrew/bin:$PATH"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -n "${AGENT_TEAM_WS:-}" ]; then
+  WS="$AGENT_TEAM_WS"
+else
+  sup="$(git -C "$here" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
+  if [ -n "$sup" ]; then WS="$(dirname "$sup")"; else WS="$here/.."; fi
+fi
+S="$(basename "$WS")"
+ROLES="po architect coder reviewer"
+EVERY=15
+FBDIR="$WS/.fallback"
+STRIP='s/\x1b\[[0-9;?]*[a-zA-Z]//g'
+
+log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
+
+# role → fallback launcher script (inside the pinned team submodule, via _start)
+fb_script() {
+  case "$1" in
+    po|coder) echo "$WS/$1/.claude/skills/agent-team/bin/$1-astra" ;;
+    architect) echo "$WS/architect/.claude/skills/agent-team/bin/architect-fast" ;;
+    reviewer) echo "$WS/reviewer/.claude/skills/agent-team/bin/reviewer-fast" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Echo a live pane_id whose cwd is $WS/$role, or nothing.
+pane_for_role() {
+  local role="$1" want="$WS/$role" dead cwd pid
+  while IFS='|' read -r dead cwd pid; do
+    [ "$dead" = "0" ] && [ "$cwd" = "$want" ] && { printf '%s' "$pid"; return 0; }
+  done < <(tmux list-panes -t "$S" -F '#{pane_dead}|#{pane_current_path}|#{pane_id}' 2>/dev/null)
+  return 1
+}
+
+# Limit markers stripped of ANSI so styled words like "spend limit" match contiguously.
+limited_text() { sed "$STRIP" "$1" | grep -qiE "spend limit|credit limit|rate limit|monthly.*limit|limit resets|usage limit|quota|insufficient|billing|payment required|exceeded|429|503"; }
+
+mkdir -p "$FBDIR"
+log "watch-team starting (roles: $ROLES, every ${EVERY}s, session '$S')"
+while :; do
+  if ! tmux has-session -t "$S" 2>/dev/null; then
+    log "session '$S' not running — exiting"
+    exit 0
+  fi
+  for role in $ROLES; do
+    pane="$(pane_for_role "$role")"
+    launch="$WS/team $role"
+    [ -f "$FBDIR/$role" ] && launch="$(fb_script "$role")"
+    if [ -z "$pane" ]; then
+      log "no live '$role' pane — restarting"
+      anchor="$(pane_for_role architect)"
+      [ -n "$anchor" ] || anchor="$(tmux list-panes -t "$S" -F '#{pane_id}' 2>/dev/null | head -1)"
+      tmux split-window -d -t "$anchor" -c "$WS/$role" "$launch" 2>/dev/null \
+        && log "'$role' pane started ($launch)" || log "FAILED to start '$role'"
+      sleep 2
+      continue
+    fi
+    [ -f "$FBDIR/$role" ] && continue   # already on fallback; don't flap
+    tmp="$(mktemp)"
+    tmux capture-pane -p -t "$pane" 2>/dev/null > "$tmp"
+    if limited_text "$tmp"; then
+      fb="$(fb_script "$role")"
+      log "'$role' hit a credit/rate limit — switching to $fb"
+      tmux respawn-pane -k -t "$pane" -c "$WS/$role" "$fb" 2>/dev/null \
+        && { touch "$FBDIR/$role"; log "'$role' now on fallback model"; } \
+        || log "FAILED to switch '$role'"
+      sleep 2
+    fi
+    rm -f "$tmp"
+  done
+  # Keep the 2x2 grid and label every pane by its role dir (path-derived, so
+  # claude/opencode overwriting the pane title can't wipe the labels).
+  tmux select-layout -t "$S" tiled >/dev/null 2>&1
+  tmux set-option -t "$S" pane-border-format ' #{b:pane_current_path} ' >/dev/null 2>&1
+  sleep "$EVERY"
+done

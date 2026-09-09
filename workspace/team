@@ -10,6 +10,8 @@
 #   ./team log               recent team activity across all roles
 #   ./team pull              git pull (+ submodules) in every clone
 #   ./team open [--tmux]     open every role in its own window (macOS Terminal, 2×2 grid) or a tmux session
+#   ./team close             stop the watchdog and kill the tmux session (also kills stray panes/agents)
+#   ./team watch [start|stop|status]   credit-limit watchdog — only runs while the team is open
 #   ./team board             the board, refreshed every 30 s — keep it in a corner
 #
 # Any extra arguments after a role are passed to claude / opencode.
@@ -29,6 +31,7 @@ URL="$(git -C "$WS/po" remote get-url origin 2>/dev/null || true)"
 DEFAULT="$(git -C "$WS/po" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
 [ -n "$DEFAULT" ] || DEFAULT=main
 BIN=".claude/skills/agent-team/bin"
+name="$(basename "$WS")"
 
 folder_for() { local role="$1" n="${2:-}"; if [ -n "$n" ] && [ "$n" != "1" ]; then echo "$role-$n"; else echo "$role"; fi; }
 author_for() {
@@ -41,6 +44,29 @@ author_for() {
 }
 
 cmd="${1:-}"; shift || true
+# --- credit-limit watchdog: only runs while the team is open --------------------
+watch_pidfile() { echo "$WS/.watchdog.pid"; }
+watch_alive() { local f; f="$(watch_pidfile)"; [ -f "$f" ] && ps -p "$(cat "$f")" >/dev/null 2>&1; }
+watch_start() {
+  local f
+  f="$(watch_pidfile)"
+  if watch_alive; then echo "watchdog already running (pid $(cat "$f"))"; return 0; fi
+  nohup env AGENT_TEAM_WS="$WS" "$here/../bin/watch-team" >"$WS/.watchdog.log" 2>&1 </dev/null &
+  echo "$!" > "$f"
+  echo "watchdog started (pid $!)"
+}
+watch_stop() {
+  local f p
+  f="$(watch_pidfile)"
+  if [ -f "$f" ]; then
+    p="$(cat "$f")"
+    kill "$p" 2>/dev/null; sleep 1; kill -9 "$p" 2>/dev/null
+    rm -f "$f"
+    echo "watchdog stopped"
+  else
+    echo "watchdog not running"
+  fi
+}
 case "$cmd" in
   po|architect|coder|reviewer)
     n=""; if [[ "${1:-}" =~ ^[0-9]+$ ]]; then n="$1"; shift; fi
@@ -80,7 +106,9 @@ case "$cmd" in
     # a "local-assistant-team" workspace create a session called "local-assistant",
     # which tmux matches by prefix against an existing "local-assistant-claude"
     # session, silently attaching the team to the wrong terminal.
-    name="$(basename "$WS")"
+    # The credit-limit watchdog is part of opening the team — it only runs while
+    # the session is up and self-exits when the session is gone (see `team close`).
+    watch_start
     roles=(po architect coder reviewer)
     if [ "$mode" = tmux ]; then
       command -v tmux >/dev/null || { echo "tmux not found (brew install tmux), or run ./team <role> in four terminals" >&2; exit 1; }
@@ -120,6 +148,24 @@ APPLESCRIPT
       i=$(( i + 1 ))
     done
     echo "opened 4 Terminal windows for $name. Board: ./team board"
+    ;;
+  close)
+    watch_stop
+    if tmux has-session -t "$name" 2>/dev/null; then
+      tmux kill-session -t "$name"
+      echo "closed session '$name'"
+    else
+      echo "no tmux session '$name' — nothing to close"
+    fi
+    echo "tip: stray agent processes (wait-for/status/opencode) die with the session;"
+    echo "     check leftovers with: pgrep -fl 'opencode|wait-for|po-cycle|codegraph'"
+    ;;
+  watch)
+    case "${1:-}" in
+      start) watch_start ;;
+      stop)  watch_stop ;;
+      *) if watch_alive; then echo "watchdog running (pid $(cat "$(watch_pidfile)"))"; else echo "watchdog not running"; fi ;;
+    esac
     ;;
   fallback)
     # Watchdog credit-limit fallback state, in $WS/.fallback/<role> flag files.
