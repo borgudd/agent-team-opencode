@@ -13,6 +13,21 @@ ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$ROOT"
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Normalize PATH so every role can find: claude (~/.local/bin), the OrbStack
+# docker CLI (~/.orbstack/bin), homebrew tools, /usr/local, and nvm node.
+# The role launchers prepend ~/.local/bin to the pane's shell PATH, so a pane
+# started from a minimal shell (e.g. a hand-built tmux session) otherwise misses
+# docker/node.
+for _d in "$HOME/.local/bin" "$HOME/.orbstack/bin" "/opt/homebrew/bin" \
+          "/usr/local/bin" "$HOME/.nvm/versions/node/"*"/bin"; do
+  [ -d "$_d" ] && case ":$PATH:" in *":$_d:"*) ;; *) PATH="$_d:$PATH" ;; esac
+done
+export PATH
+
+# Workspace hook: the project may extend PATH (e.g. expose its .venv bin so the
+# roles can run pytest).
+[ -f "$ROOT/.team/env.sh" ] && . "$ROOT/.team/env.sh"
+
 here="$(basename "$PWD")"
 case "$here" in
   "$role"|"$role"-[0-9]*) ;;
