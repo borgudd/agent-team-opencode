@@ -49,14 +49,17 @@ is_retryable() {
 
 # Run one candidate: exit 0 on success, exit <rc> on hard error, return 3 when retryable.
 exec_one() {
-  local tmp err rc
+  local tmp tail_pid err rc
   tmp="$(mktemp)"
+  tail -F "$tmp" >&2 &
+  tail_pid=$!
   if [ "$1" = _primary ]; then
     "${primary[@]}" 2>"$tmp"
   else
     bash -c "$1" 2>"$tmp"
   fi
   rc=$?
+  kill "$tail_pid" 2>/dev/null; wait "$tail_pid" 2>/dev/null || true
   if [ $rc -eq 0 ]; then rm -f "$tmp"; exit 0; fi
   err="$(cat "$tmp")"; rm -f "$tmp"
   if is_retryable "$err"; then
