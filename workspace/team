@@ -51,7 +51,7 @@ watch_start() {
   local f
   f="$(watch_pidfile)"
   if watch_alive; then echo "watchdog already running (pid $(cat "$f"))"; return 0; fi
-  nohup env AGENT_TEAM_WS="$WS" "$here/../bin/watch-team" >"$WS/.watchdog.log" 2>&1 </dev/null &
+  nohup env AGENT_TEAM_WS="$WS" bash "$here/../bin/watch-team" >"$WS/.watchdog.log" 2>&1 </dev/null &
   echo "$!" > "$f"
   echo "watchdog started (pid $!)"
 }

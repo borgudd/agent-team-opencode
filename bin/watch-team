@@ -58,6 +58,7 @@ log "watch-team starting (roles: $ROLES, every ${EVERY}s, session '$S')"
 while :; do
   if ! tmux has-session -t "$S" 2>/dev/null; then
     log "session '$S' not running — exiting"
+    [ "$(cat "$WS/.watchdog.pid" 2>/dev/null)" = "$$" ] && rm -f "$WS/.watchdog.pid"
     exit 0
   fi
   for role in $ROLES; do
