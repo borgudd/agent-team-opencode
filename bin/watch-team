@@ -57,7 +57,12 @@ pane_for_role() {
 }
 
 # Limit markers stripped of ANSI so styled words like "spend limit" match contiguously.
-limited_text() { sed "$STRIP" "$1" | grep -qiE "spend limit|credit limit|rate limit|monthly.*limit|limit resets|usage limit|quota|insufficient|billing|payment required|exceeded|429|503"; }
+# Match only real "you are limited" signals: a named limit (spend/credit/rate/usage/
+# monthly/daily/hard + limit), or an error status paired with a quota/too-many word.
+# Bare tokens like "exceeded", "429", "503", "quota", "billing" are NOT enough — they
+# show up in ordinary UI text (e.g. "context window exceeded") and false-flag a role
+# onto its fallback model.
+limited_text() { sed "$STRIP" "$1" | grep -qiE "spend limit|credit limit|rate limit|usage limit|monthly limit|daily limit|hard limit|limit resets|too many requests|payment required|insufficient (funds|credit|balance|quota)|quota.{0,20}(exceeded|reached|limit)|(exceeded|reached|hit).{0,20}(limit|quota|429|503)|(429|503).{0,20}(quota|exceeded|too many|limit)"; }
 
 mkdir -p "$FBDIR"
 log "watch-team starting (roles: $ROLES, every ${EVERY}s, session '$S')"
