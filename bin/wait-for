@@ -49,7 +49,19 @@ while :; do
   fi
 
   keyed=""
-  while IFS=$'\t' read -r id status title next where urge; do
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    # `IFS=$'\t' read` looks right but is wrong: bash treats tab as
+    # IFS-whitespace regardless of what IFS is set to, so it collapses
+    # consecutive tabs and strips them at the edges -- exactly what a story
+    # with an empty `where` column (bin/status never sets one for `ready` or
+    # `needs-split`) produces. That silently shifted `urge` into `where` and
+    # left `urge` empty, so every `ready`/`needs-split` row read as
+    # non-urgent no matter what the story said (caught in review). \x02 is
+    # not IFS-whitespace, so splitting on it does not collapse empty fields --
+    # unlike \x01, which this bash 3.2 (the floor for this repo) silently
+    # fails to split on at all; verified before picking it.
+    IFS=$'\x02' read -r id status title next where urge <<< "${line//$'\t'/$'\x02'}"
     [ "$next" = "$role" ] || continue
     rank="$(class_rank "$role" "$status")"
     urgekey=1; [ "$urge" = "1" ] && urgekey=0
