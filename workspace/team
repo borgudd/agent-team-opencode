@@ -147,6 +147,7 @@ end tell
 APPLESCRIPT
       i=$(( i + 1 ))
     done
+    watch_start
     echo "opened 4 Terminal windows for $name. Board: ./team board"
     ;;
   close)
