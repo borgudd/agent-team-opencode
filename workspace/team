@@ -108,7 +108,6 @@ case "$cmd" in
     # session, silently attaching the team to the wrong terminal.
     # The credit-limit watchdog is part of opening the team — it only runs while
     # the session is up and self-exits when the session is gone (see `team close`).
-    watch_start
     roles=(po architect coder reviewer)
     if [ "$mode" = tmux ]; then
       command -v tmux >/dev/null || { echo "tmux not found (brew install tmux), or run ./team <role> in four terminals" >&2; exit 1; }
@@ -122,6 +121,7 @@ case "$cmd" in
       p3=$(tmux split-window -v -t "$p1" -c "$WS/reviewer" -P -F '#{pane_id}' "$WS/team reviewer")
       tmux select-pane -t "$p3" -T reviewer
       tmux select-pane -t "$p0"
+      watch_start
       tmux set-option -t "$name" pane-border-status top >/dev/null
       # Label each pane by its role dir (path-derived at render time, so
       # claude/opencode overwriting the pane title can't wipe the label).
