@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Watch the team tmux session and (a) restart any role pane that disappears or dies, and
-# (b) switch a role to its fallback model when its pane shows a credit/rate-limit error.
+# Watch the team tmux session and (a) restart any role pane that disappears or dies,
+# (b) switch a role to its fallback model when its pane shows a credit/rate-limit error,
+# and (c) restart a role whose process has exited and left its pane at a bare shell prompt
+# (what a spend/usage limit leaves behind). A prompt shell cannot be distinguished from a
+# running role by cwd alone — the pane's process must also have a live child (the role).
 #
 # Lifecycle: this process only RUNS while the team is started. `team open` starts it and
 # `team close` stops it (pidfile $WS/.watchdog.pid, log $WS/.watchdog.log). Belt-and-
@@ -40,12 +43,16 @@ fb_script() {
   esac
 }
 
-# Echo a live pane_id whose cwd is $WS/$role, or nothing.
+# Echo a live pane_id whose cwd is $WS/$role and whose pane process has a live child
+# (i.e. a role is running — or mid-launch — not just an idle shell sitting at a prompt).
 pane_for_role() {
-  local role="$1" want="$WS/$role" dead cwd pid
-  while IFS='|' read -r dead cwd pid; do
-    [ "$dead" = "0" ] && [ "$cwd" = "$want" ] && { printf '%s' "$pid"; return 0; }
-  done < <(tmux list-panes -t "$S" -F '#{pane_dead}|#{pane_current_path}|#{pane_id}' 2>/dev/null)
+  local role="$1" want="$WS/$role" dead cwd procid pane kids
+  while IFS='|' read -r dead cwd procid pane; do
+    if [ "$dead" = "0" ] && [ "$cwd" = "$want" ]; then
+      kids="$(pgrep -P "$procid" 2>/dev/null)"
+      [ -n "$kids" ] && { printf '%s' "$pane"; return 0; }
+    fi
+  done < <(tmux list-panes -t "$S" -F '#{pane_dead}|#{pane_current_path}|#{pane_pid}|#{pane_id}' 2>/dev/null)
   return 1
 }
 
