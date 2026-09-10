@@ -82,6 +82,9 @@ case "$cmd" in
     git -C "$WS/$role-$n" config user.name "$(author_for "$role")"
     echo "added $role-$n/   start it with: ./team $role $n"
     ;;
+  story)
+    cd "$WS/po" && exec "$BIN/story" "$@"
+    ;;
   status)
     cd "$WS/po" && git fetch -q origin && exec "$BIN/status"
     ;;

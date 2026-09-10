@@ -162,6 +162,14 @@ while IFS= read -r story; do
       esac
     fi
   fi
+
+  # GitHub mirror override: bin/story pull marks a story closed/cancelled when
+  # a human closes (or cancels) its issue on GitHub — git+PR state cannot see
+  # that, so the board honors a terminal front-matter status when present.
+  st_override="$(first_line "$story" status)"
+  case "$st_override" in
+    done|closed|cancelled) status="$st_override"; next="—"; where="gh" ;;
+  esac
   ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where")
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
