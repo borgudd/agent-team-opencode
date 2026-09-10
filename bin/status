@@ -102,7 +102,28 @@ while IFS= read -r story; do
   elif [ -n "$note" ] && [ "$(ctime "$note")" -gt "$(ctime "$plan")" ]; then
     status=needs-replan; next=architect; where="$note"
   elif [ -z "$branch" ]; then
-    status=planned; next=coder; where="$plan"
+    # No remote branch is "no work yet" only until proven otherwise: a merged
+    # (or closed) PR gets its branch deleted too — by the merge flow or by
+    # hand — and without this fallback a finished story re-enters the board as
+    # `planned` forever the moment its branch is gone, so the Coder redoes it.
+    fallback_pr=""
+    if [ "$have_gh" -eq 1 ]; then
+      fallback_pr="$(printf '%s\n' "$prs" | awk -F'\t' -v id="$id" '$1 ~ "^feat/" id "-" {print $1"\t"$2"\t"$3; exit}')"
+    fi
+    if [ -z "$fallback_pr" ]; then
+      status=planned; next=coder; where="$plan"
+    else
+      IFS=$'\t' read -r _fb_branch fb_num fb_state <<< "$fallback_pr"
+      where="#$fb_num"
+      case "$fb_state" in
+        MERGED) status=done; next="—" ;;
+        CLOSED) status=closed; next="—" ;;
+        # Branch gone but the PR is still open is rare (manual branch delete);
+        # there is no branch left to read a review verdict from, so hand it
+        # back to the reviewer rather than guessing.
+        *) status=in-review; next=reviewer; where="$where (branch deleted)" ;;
+      esac
+    fi
   elif [ "$have_gh" -eq 0 ]; then
     # Not `in-progress`: we do not know, and `next` must not name a role, or an
     # unattended Coder picks the row up. `wait-for` matches the role exactly.
