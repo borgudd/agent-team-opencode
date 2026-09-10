@@ -51,6 +51,8 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 
 A story or plan can declare `depends-on: 001, 002` — one line, comma-separated, three-digit IDs. Only `done` satisfies a dependency; a dependency that GitHub cannot be queried for, or that is itself `blocked`, counts as not done, so a blocked story never degrades into work. A dependency discovered while planning goes in the plan's frontmatter (never by editing the story).
 
+A story can declare `urge: true` in its frontmatter (the PO's call, story-only — a plan cannot set it) to jump the queue: `bin/wait-for` offers a role its urgent rows before its non-urgent ones, ID order otherwise unchanged. Urgency orders *within* a role's own precedence classes; it never lets a `planned` story jump a `changes-requested` one, and never overrides `blocked` — a declared dependency still wins. Anything but `true`/`yes`/`1` (a bare `urge:`, a typo, a word) means not urgent, and the story is still listed. The board (`bin/status`) shows which rows are urgent; `bin/wait-for` is what actually reorders them.
+
 Because every role writes in a different folder or on a different branch, there is nothing to conflict on. `git log -- .team/` is the team's history; `git log --author=Coder` is one role's.
 
 ## Rules
