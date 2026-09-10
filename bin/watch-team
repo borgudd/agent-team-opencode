@@ -34,7 +34,9 @@ log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 # role → fallback launcher script (inside the pinned team submodule, via _start)
 fb_script() {
   case "$1" in
-    po|coder|architect|reviewer) echo "$WS/$1/.claude/skills/agent-team/bin/$1" ;;
+    po|coder) echo "$WS/$1/.claude/skills/agent-team/bin/$1-astra" ;;
+    architect) echo "$WS/architect/.claude/skills/agent-team/bin/architect-fast" ;;
+    reviewer) echo "$WS/reviewer/.claude/skills/agent-team/bin/reviewer-fast" ;;
     *) echo "" ;;
   esac
 }
