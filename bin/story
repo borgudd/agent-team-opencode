@@ -112,9 +112,9 @@ PUSH() {
     bstate="$(gh issue view "$n" --repo "$REPO" --json state --jq .state 2>/dev/null)"
     case "$state" in
       done|closed|cancelled)
-        [ "$bstate" = "CLOSED" ] || action "gh issue edit $n --repo $REPO --closed" ;;
+        [ "$bstate" = "CLOSED" ] || action "gh issue close $n --repo $REPO" ;;
       *)
-        [ "$bstate" = "OPEN" ] || action "gh issue edit $n --repo $REPO --open" ;;
+        [ "$bstate" = "OPEN" ] || action "gh issue reopen $n --repo $REPO" ;;
     esac
   done <<< "$(stories)"
   if [ "$changed" -eq 1 ]; then
