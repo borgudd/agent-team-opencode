@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Architect (GPT-6-astra). Picks up stories without a plan.
+# Architect (opencode gpt-5.6-sol). Picks up stories without a plan.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" architect architect.md \
   env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-architect.json" \
