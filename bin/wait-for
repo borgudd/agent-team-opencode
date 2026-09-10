@@ -4,19 +4,60 @@
 #   exit 1  after MAX seconds      — nothing yet; the caller just runs it again
 #   exit 2  board unreliable       — git fetch or gh failed; tell the human, do not loop
 # usage: wait-for <po|architect|coder|reviewer> [MAX seconds, default 540] [POLL seconds, default 30]
+#
+# Rows for a role are offered pre-sorted: precedence class first (a role's own
+# statuses, most-urgent-to-act-on first — e.g. the Coder clears
+# `changes-requested` before `planned`), then urgency (`urge: true` on a
+# story, story 027), then story ID. Urgency orders *within* a class; it never
+# lets a later class jump an earlier one, and a status not listed for a role
+# never reaches it — `bin/status` already withheld it via `next`.
 set -uo pipefail
 role="${1:?role}"; max="${2:-540}"; every="${3:-30}"
 cd "$(git rev-parse --show-toplevel)" || exit 1
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Lower rank = offered first. Anything not listed for a role ranks last (9)
+# rather than erroring — it should never actually reach that role (`next`
+# already filters it out), and a bare `sort -k…` over a clever lookup keeps
+# this readable at bash 3.2.
+class_rank() {
+  case "$1:$2" in
+    architect:needs-replan) echo 0 ;;
+    architect:ready) echo 1 ;;
+    coder:changes-requested) echo 0 ;;
+    coder:planned) echo 1 ;;
+    coder:in-progress) echo 2 ;;
+    reviewer:in-review) echo 0 ;;
+    # A broken dependency declaration (dep-missing/dep-cycle) silently holds
+    # up every story that names it, not just its own — it outranks a
+    # needs-split, which only holds up itself.
+    po:dep-missing) echo 0 ;;
+    po:dep-cycle) echo 0 ;;
+    po:needs-split) echo 1 ;;
+    *) echo 9 ;;
+  esac
+}
+
 t=0
 while :; do
   err="$(mktemp)"
-  rows="$("$BIN/status" --tsv 2>"$err" | awk -F'\t' -v r="$role" '$4==r {printf "%s  %-18s %s\n", $1, $2, $3}')"
+  tsv="$("$BIN/status" --tsv 2>"$err")"
   warn="$(grep '^warning' "$err" || true)"; rm -f "$err"
   if [ -n "$warn" ]; then
     echo "cannot trust the board from here:"; echo "$warn"
     echo "fix the environment (network / gh auth login) and start again — do not keep looping"; exit 2
   fi
+
+  keyed=""
+  while IFS=$'\t' read -r id status title next where urge; do
+    [ "$next" = "$role" ] || continue
+    rank="$(class_rank "$role" "$status")"
+    urgekey=1; [ "$urge" = "1" ] && urgekey=0
+    keyed="$keyed$rank"$'\t'"$urgekey"$'\t'"$id"$'\t'"$status"$'\t'"$title"$'\n'
+  done <<< "$tsv"
+
+  rows="$(printf '%s' "$keyed" | sort -t $'\t' -k1,1n -k2,2n -k3,3n | awk -F'\t' 'NF{printf "%s  %-18s %s\n", $3, $4, $5}')"
+
   if [ -n "$rows" ]; then
     git pull -q --rebase --autostash 2>/dev/null || true
     echo "work for $role:"; echo "$rows"; exit 0
