@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# GitHub story mirror.
+#
+# Stories live as markdown files in .team/backlog/NNN-<slug>.md (git), and are
+# mirrored to GitHub issues in the same repo (label "story"). Two-way:
+#
+#   ./team story new <title>   allocate the next NNN, write the story file and open a GitHub issue
+#   ./team story push          files -> issues  (ensure issue, sync title/body, open/close by board status)
+#   ./team story pull          issues -> files  (title edits, issue close/cancel, comments -> notes)
+#   ./team story list [state]  show the issue<->story mapping (default: open)
+#
+# Run inside any clone of the story repo (local-assistant). STORY_DRY_RUN=1
+# prints every gh/git action instead of executing it ("(dry-run)" suffix).
+set -uo pipefail
+
+DRY="${STORY_DRY_RUN:-0}"
+
+say()    { printf '%s\n' "$*"; }
+die()    { printf 'story: %s\n' "$*" >&2; exit 1; }
+action() { if [ "$DRY" -eq 1 ]; then printf '%s (dry-run)\n' "$*"; else eval "$*"; fi; }
+
+# --- repo context -----------------------------------------------------------
+TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repo"
+cd "$TOP" || exit 1
+REPO="$(git config --get remote.origin.url | sed -E 's#(https://github.com/|git@github.com:|git://github.com/)##; s#\.git$##')"
+[ -n "$REPO" ] || die "no origin remote — cannot map GitHub issues"
+[ -d .team/backlog ] || die "no .team/backlog here — this workflow targets the story repo"
+DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+[ -n "$DEFAULT" ] || DEFAULT=main
+MAIN="origin/$DEFAULT"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- story + front matter helpers (enumeration identical to bin/status) -----
+stories() { git ls-tree -r --name-only "$MAIN" -- .team/backlog/ | grep -E '/[0-9]{3}-.*\.md$' | sort; }
+fm()       { git show "$MAIN:$1" 2>/dev/null | sed -n "s/^$2: *//p" | head -1; }
+content()  { git show "$MAIN:$1" 2>/dev/null || die "cannot read $1 on $MAIN"; }
+path_for() { stories | awk -v id="$1" -F/ '$NF ~ "^" id "-" {print; exit}'; }
+slugify()  { printf '%s' "$1" | tr '[:upper:] [:space:]/' '[:lower:] ---' | sed -E 's/-+/-/g; s/^-|-$//g'; }
+esc()      { printf '%s' "$*" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+# write_fm <path> <key> <value>: set (or clear when value empty) front matter.
+write_fm() {
+  local f=$1 k=$2 v=$3 tmp
+  if ! git cat-file -e "$MAIN:$f" 2>/dev/null; then
+    mkdir -p "$(dirname "$f")"; printf -- '---\n---\n' > "$f"
+  else
+    git checkout -q "$MAIN" -- "$f" 2>/dev/null || true
+  fi
+  tmp="$(mktemp)"
+  if [ -n "$v" ]; then
+    awk -v k="$k" -v v="$v" '
+      !done && $0=="---" { print; print k ": " v; done=1; next }
+      done && $0 ~ "^" k ":" { next }
+      { print }
+    ' "$f" > "$tmp"
+  else
+    awk -v k="$k" '
+      in_front && $0 ~ "^" k ":" { next }
+      $0=="---" { in_front = in_front ? 0 : 1 }
+      { print }
+    ' "$f" > "$tmp"
+  fi
+  mv "$tmp" "$f"
+}
+
+# fm_write <path> <key> <value> <msg>: dry-run aware file edit + staging
+fm_write() {
+  if [ "$DRY" -eq 1 ]; then
+    action "write_fm $1 $2=\"${3:-(clear)}\" && git add $1"
+  else
+    write_fm "$1" "$2" "$3"
+    git add "$1"
+    say "  $4"
+  fi
+}
+
+# --- commands ----------------------------------------------------------------
+PUSH() {
+  local id path title n state curl_title curl_body want bstate
+  local tsv="$( { "$HERE/status" --tsv 2>/dev/null || true; } | cut -f1,2 )"
+  local changed=0
+  while IFS= read -r path; do
+    id="$(basename "$path" .md)"; id="${id%%-*}"
+    title="$(fm "$path" title)"
+    state="$(printf '%s\n' "$tsv" | awk -v id="$id" -F'\t' '$1==id {print $2; exit}')"
+    [ -n "$state" ] || state=unknown
+    n="$(fm "$path" issue)"
+    if [ -z "$n" ] || [ "$n" = "?" ]; then
+      say "creating issue for $id ($title)"
+      if [ "$DRY" -eq 1 ]; then
+        action "gh issue create --repo $REPO --label story --title \"$(esc "$id · $title")\" --body-file <story file>"
+        continue
+      fi
+      bf="$(mktemp)"; content "$path" > "$bf"
+      out="$(gh issue create --repo "$REPO" --label story --title "$id · $title" --body-file "$bf" 2>&1)"; rc=$?; rm -f "$bf"
+      [ "$rc" -eq 0 ] || { say "  push: skipped $id — $out"; continue; }
+      n="$(printf '%s\n' "$out" | grep -oE '/issues/[0-9]+' | tr -dc '0-9')"
+      [ -n "$n" ] || { say "  push: could not read issue number for $id"; continue; }
+      fm_write "$path" issue "$n" "issue #$n recorded"
+      changed=1
+    else
+      curl_title="$(gh issue view "$n" --repo "$REPO" --json title --jq .title 2>/dev/null)"
+      [ "$curl_title" = "$id · $title" ] || \
+        action "gh issue edit $n --repo $REPO --title \"$(esc "$id · $title")\""
+      want="$(content "$path")"
+      if [ "$(gh issue view "$n" --repo "$REPO" --json body --jq .body 2>/dev/null)" != "$want" ]; then
+        bf="$(mktemp)"; printf '%s' "$want" > "$bf"
+        action "gh issue edit $n --repo $REPO --body-file $bf"
+        [ "$DRY" -eq 1 ] || rm -f "$bf"
+      fi
+    fi
+    bstate="$(gh issue view "$n" --repo "$REPO" --json state --jq .state 2>/dev/null)"
+    case "$state" in
+      done|closed|cancelled)
+        [ "$bstate" = "CLOSED" ] || action "gh issue edit $n --repo $REPO --closed" ;;
+      *)
+        [ "$bstate" = "OPEN" ] || action "gh issue edit $n --repo $REPO --open" ;;
+    esac
+  done <<< "$(stories)"
+  if [ "$changed" -eq 1 ]; then
+    action "git commit -q -m \"team: record issue numbers in story front matter\""
+    action "git push -q origin HEAD"
+  fi
+  say "push: done"
+}
+
+PULL() {
+  local n ititle state0 id title n2 cur W_TITLE note last
+  local changed=0
+  local tsv_f="$(mktemp)"
+  gh issue list --repo "$REPO" --label story --state all --limit 500 \
+    --json number,title,state --jq '.[] | [.number,.title,.state] | @tsv' > "$tsv_f" 2>/dev/null \
+    || { rm -f "$tsv_f"; die "gh could not list story issues"; }
+  while IFS=$'\t' read -r n ititle state0; do
+    id="$(printf '%s\n' "$ititle" | sed -nE 's/^([0-9]{3}) · .*/\1/p')"
+    [ -n "$id" ] || { say "pull: issue #$n has no story id in its title — skipping"; continue; }
+    path="$(path_for "$id")"
+    if [ -z "$path" ]; then say "pull: issue #$n -> no story file (orphan)"; continue; fi
+    title="$(fm "$path" title)"
+    n2="$(fm "$path" issue)"
+    if [ -z "$n2" ] || [ "$n2" = "?" ]; then
+      fm_write "$path" issue "$n" "mapped #$n from title"
+      changed=1
+    fi
+    W_TITLE="$(printf '%s\n' "$ititle" | sed -E 's/^[0-9]{3} · //')"
+    if [ "$W_TITLE" != "$title" ]; then
+      fm_write "$path" title "$W_TITLE" "GH renamed $id -> \"$W_TITLE\""
+      changed=1
+    fi
+    cur="$(fm "$path" status)"
+    if [ "$state0" = "CLOSED" ] && [ "$cur" != "closed" ] && [ "$cur" != "cancelled" ]; then
+      fm_write "$path" status closed "GH closed #$n -> $id marked closed"
+      changed=1
+    elif [ "$state0" = "OPEN" ] && { [ "$cur" = "closed" ] || [ "$cur" = "cancelled" ]; }; then
+      fm_write "$path" status "" "GH reopened #$n -> $id status cleared"
+      changed=1
+    fi
+    note=".team/notes/$(basename "$path" .md).md"
+    last="$(gh issue view "$n" --repo "$REPO" --json comments --jq '.comments[-1] | "\(.createdAt) \(.body)"' 2>/dev/null)"
+    if [ -n "$last" ] && ! content "$note" 2>/dev/null | grep -qF "gh:$n"; then
+      if [ "$DRY" -eq 1 ]; then
+        action "append comment to $note"
+      else
+        mkdir -p "$(dirname "$note")"
+        printf '\n## GitHub comment (#%s)\n%s\n' "$n" "$last" >> "$note"
+        git add "$note"
+        say "  comment from #$n appended to $note"
+      fi
+      changed=1
+    fi
+  done < "$tsv_f"
+  rm -f "$tsv_f"
+  if [ "$changed" -eq 1 ]; then
+    action "git commit -q -m \"team: sync stories from GitHub\""
+    action "git push -q origin HEAD"
+  fi
+  say "pull: done"
+}
+
+NEW() {
+  [ $# -gt 0 ] || die "usage: team story new <title>…"
+  local title="$*"
+  local id slug path out n
+  id="$(stories | sed -E 's#^.*/([0-9]{3})-[^/]*\.md$#\1#' | sort -n | tail -1)"
+  id="$(printf '%03d' "$(( ${id:-0} + 1 ))")"
+  slug="$(slugify "$title")"
+  path=".team/backlog/$id-$slug.md"
+  if git cat-file -e "$MAIN:$path" 2>/dev/null; then die "story path already exists: $path"; fi
+  if [ "$DRY" -eq 1 ]; then
+    say "story $id: $title -> $path (dry-run: file + issue + commit skipped)"
+    action "gh issue create --repo $REPO --label story --title \"$(esc "$id · $title")\" --body-file $path"
+    return 0
+  fi
+  mkdir -p "$(dirname "$path")"
+  printf -- '---\nid: %s\ntitle: %s\n---\n\n## Outcome\nTODO: describe the finished behaviour.\n\n## Why\nDescribe the problem this story solves.\n' "$id" "$title" > "$path"
+  say "story $id: $title -> $path"
+  out="$(gh issue create --repo "$REPO" --label story --title "$id · $title" --body-file "$path" 2>&1)" \
+    || die "issue create failed: $out"
+  n="$(printf '%s\n' "$out" | grep -oE '/issues/[0-9]+' | tr -dc '0-9')"
+  say "  GitHub issue #$n"
+  write_fm "$path" issue "$n"
+  git add "$path"
+  action "git commit -q -m \"team(po): story $id $title (#$n)\""
+  action "git push -q origin HEAD"
+  say "new: done — start at Architect"
+}
+
+case "${1:-}" in
+  new)   shift; NEW "$@" ;;
+  push)  PUSH ;;
+  pull)  PULL ;;
+  list)  gh issue list --repo "$REPO" --label story --state "${2:-open}" \
+           --json number,title,state,url --jq '.[] | "#\(.number) [\(.state)] \(.title)  \(.url)"' 2>/dev/null \
+         || die "gh could not list story issues" ;;
+  help|--help|-h|"")
+    cat <<'EOF'
+usage: ./team story <new|push|pull|list>
+  new <title>…   allocate next NNN, write the story file, open a GitHub issue
+  push           files -> issues: ensure/create, sync title+body, open/close by board status
+  pull           issues -> files: GH title edits, issue close (status: closed), comments -> notes
+  list [state]   show issue<->story mapping (state: open|closed|all, default open)
+EOF
+    ;;
+  *) die "unknown subcommand: ${1:-}" ;;
+esac
