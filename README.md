@@ -1,7 +1,7 @@
 # agent-team
 
-A Claude Code skill that runs a multi-model agent team on a GitHub repo:
-Product Owner, Architect and Coder on Claude Opus 5, Reviewer on OpenCode (GPT via ChatGPT OAuth).
+A Claude Code skill that runs an agent team on a GitHub repo:
+Product Owner and Architect on Claude Opus 5, Coder and Reviewer on Claude Sonnet 5.
 The team lives **in the project** as a pinned git submodule. One clone per role, one terminal per clone, all communication through git. Status is derived, never written. The human merges.
 
 See [SKILL.md](SKILL.md) for the design and [team/TEAM.md](team/TEAM.md) for the rulebook the agents get.

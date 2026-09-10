@@ -4,7 +4,7 @@
 #   ./team po                start the Product Owner (talk to this one)
 #   ./team architect         start the Architect
 #   ./team coder [N]         start the Coder (N=2 → coder-2/)
-#   ./team reviewer [N]      start the Reviewer (OpenCode GPT)
+#   ./team reviewer [N]      start the Reviewer (Sonnet 5)
 #   ./team add coder|reviewer   clone another coder-N/ or reviewer-N/
 #   ./team status            the board (derived from git + GitHub)
 #   ./team log               recent team activity across all roles
@@ -14,7 +14,7 @@
 #   ./team watch [start|stop|status]   credit-limit watchdog — only runs while the team is open
 #   ./team board             the board, refreshed every 30 s — keep it in a corner
 #
-# Any extra arguments after a role are passed to claude / opencode.
+# Any extra arguments after a role are passed to claude.
 # The team itself lives in each clone at .claude/skills/agent-team (a pinned submodule).
 
 set -uo pipefail
@@ -39,7 +39,7 @@ author_for() {
     po) echo "Product Owner (Opus 5)" ;;
     architect) echo "Architect (Opus 5)" ;;
     coder) echo "Coder (Opus 5)" ;;
-    reviewer) echo "Reviewer (OpenCode GPT)" ;;
+    reviewer) echo "Reviewer (Sonnet 5)" ;;
   esac
 }
 
@@ -124,7 +124,7 @@ case "$cmd" in
       watch_start
       tmux set-option -t "$name" pane-border-status top >/dev/null
       # Label each pane by its role dir (path-derived at render time, so
-      # claude/opencode overwriting the pane title can't wipe the label).
+      # claude overwriting the pane title can't wipe the label).
       tmux set-option -t "$name" pane-border-format ' #{b:pane_current_path} ' >/dev/null
       exec tmux attach -t "$name"
     fi
@@ -158,8 +158,8 @@ APPLESCRIPT
     else
       echo "no tmux session '$name' — nothing to close"
     fi
-    echo "tip: stray agent processes (wait-for/status/opencode) die with the session;"
-    echo "     check leftovers with: pgrep -fl 'opencode|wait-for|po-cycle|codegraph'"
+    echo "tip: stray agent processes (wait-for/status/claude) die with the session;"
+    echo "     check leftovers with: pgrep -fl 'claude|wait-for|po-cycle|codegraph'"
     ;;
   watch)
     case "${1:-}" in

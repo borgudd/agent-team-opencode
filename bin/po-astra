@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# Product Owner fallback — opencode gpt-5.6-sol-fast, used by the watchdog when a claude
-# spend limit blocks the primary PO. Reads the same role file via a dedicated config.
-[ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
-exec "$(dirname "$0")/_start" po product-owner.md \
-  env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-astra-fast.json" \
-  opencode run --interactive \
-  'You are the Product Owner. Read AGENTS.md, then your role file at ROLEFILE, and follow its "On start" section.' "$@"

@@ -10,9 +10,9 @@ The team itself is a git submodule pinned to a version; the project's own files 
 | Role | Runs on | Lane (the only place you write) | Never |
 |---|---|---|---|
 | Product Owner | Opus 5 | `.team/backlog/` on main | plans, code |
-| Architect | GPT-6-astra (via Opencode) | `.team/plans/` on main | production code |
-| Coder | Opus 5 | code + tests on `feat/NNN-*`, PRs, `.team/notes/` on main | scope changes, merging |
-| Reviewer | OpenCode (GPT) | `.team/reviews/` on the PR branch, reviews on GitHub | rewriting the code |
+| Architect | Opus 5 | `.team/plans/` on main | production code |
+| Coder | Sonnet 5 | code + tests on `feat/NNN-*`, PRs, `.team/notes/` on main | scope changes, merging |
+| Reviewer | Sonnet 5 | `.team/reviews/` on the PR branch, reviews on GitHub | rewriting the code |
 | Human | — | merging | — |
 
 Each role works in its own clone of this repo, in its own terminal, unattended: Architect, Coder and Reviewer sit in a loop on `bin/wait-for <role>`, which returns the moment the board has something in their lane. Nobody looks at anyone else's working directory. **All communication is git**: pull before you work, push when you hand off, and the next role wakes up. The human talks to the PO and merges. Always.
@@ -61,7 +61,3 @@ Because every role writes in a different folder or on a different branch, there 
 - `git pull --rebase` before you push. If a push is rejected, pull and push again — do not force.
 - Sign your work. Text an agent writes on the human's behalf (commit messages, PR bodies, review comments) ends with `— <Role> (<model>) on behalf of <human>`, the human being whoever `.team/team.md` names. Never pose as the human.
 - Keep it short. These agents know how to code. This file coordinates; it does not teach craft.
-
-## If you are OpenCode
-
-You are the **Reviewer**. Read `$TEAM/roles/reviewer.md` and do that job. You do not implement features.

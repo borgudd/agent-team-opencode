@@ -10,7 +10,7 @@
 # Why pane-text scanning: claude roles stay alive while limited (inline spend-limit bubble),
 # so a fallback can't key off the launcher's exit code — the watchdog watches the pane
 # instead. Roles are identified by their pane's working directory (the -c dirs `team open
-# --tmux` uses), NOT by pane title: claude/opencode overwrite titles.
+# --tmux` uses), NOT by pane title: claude overwrites titles.
 #
 # Fallback state: a $WS/.fallback/<role> flag file means "this role is on its fallback model".
 # The watchdog respawns/keeps it on the fallback until the flag is cleared and the pane
@@ -31,12 +31,11 @@ STRIP='s/\x1b\[[0-9;?]*[a-zA-Z]//g'
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
-# role → fallback launcher script (inside the pinned team submodule, via _start)
+# role → fallback launcher script (inside the pinned team submodule, via _start).
+# Every role has a <role>-fast twin on a lighter Claude model; see bin/*-fast.
 fb_script() {
   case "$1" in
-    po|coder) echo "$WS/$1/.claude/skills/agent-team/bin/$1-astra" ;;
-    architect) echo "$WS/architect/.claude/skills/agent-team/bin/architect-fast" ;;
-    reviewer) echo "$WS/reviewer/.claude/skills/agent-team/bin/reviewer-fast" ;;
+    po|architect|coder|reviewer) echo "$WS/$1/.claude/skills/agent-team/bin/$1-fast" ;;
     *) echo "" ;;
   esac
 }
@@ -88,7 +87,7 @@ while :; do
     rm -f "$tmp"
   done
   # Keep the 2x2 grid and label every pane by its role dir (path-derived, so
-  # claude/opencode overwriting the pane title can't wipe the labels).
+  # claude overwriting the pane title can't wipe the labels).
   tmux select-layout -t "$S" tiled >/dev/null 2>&1
   tmux set-option -t "$S" pane-border-format ' #{b:pane_current_path} ' >/dev/null 2>&1
   sleep "$EVERY"

@@ -6,8 +6,8 @@ project: {{PROJECT_NAME}}
 models:
   product-owner: claude (opus)
   architect: claude (opus)
-  coder: claude (opus)
-  reviewer: opencode (gpt-5.6-terra via ChatGPT OAuth)
+  coder: claude (sonnet)
+  reviewer: claude (sonnet)
 
 merge: human
 

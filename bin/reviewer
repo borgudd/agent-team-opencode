@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
-# Reviewer (OpenCode / ChatGPT). Reviews open PRs.
-# OpenCode reads AGENTS.md on its own; the prompt tells it which role it has.
-#
-# The Claude roles stay resident in the pane; OpenCode must too, so use
-# `opencode run --interactive`, which keeps a live split-footer session after
-# the initial message. Plain `opencode "<prompt>"` is wrong — the positional
-# argument is a *project path*, not a prompt, in current OpenCode versions.
-#
-# Tool permissions come from the reviewer's dedicated config file
-# (OPENCODE_CONFIG): `"permission": { "*": "allow" }`. OpenCode auto-rejects any
-# `ask` request in unattended mode, and a rejected tool call aborts the process —
-# which killed the reviewer mid-review several times when the config only
-# allow-listed a fixed set. `"*": "allow"` is scoped to this one role's config,
-# never `--auto`, and keeps the reviewer running unprompted.
+# Reviewer (Sonnet 5). Reviews open PRs.
+# A different model from the Coder, but the same family — the independence
+# this role used to get from a separate provider now has to come from its
+# process: read the diff, not the PR description. See team/roles/reviewer.md.
+[ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
-  env OPENCODE_CONFIG="$HOME/.config/opencode/agent-team-reviewer.json" \
-  opencode run --interactive \
-  'You are the Reviewer. Read AGENTS.md, then your role file at ROLEFILE, and follow its "On start" section.' "$@"
+  env PATH="$HOME/.local/bin:$PATH" \
+  claude --model sonnet --append-system-prompt-file ROLEFILE "$@"

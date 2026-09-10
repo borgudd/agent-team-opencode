@@ -1,6 +1,6 @@
 ---
 name: agent-team
-description: A multi-model agent team — Product Owner, Architect and Coder on Claude Opus 5, Reviewer on OpenCode (GPT) — that lives in the project as a pinned git submodule and works from separate clones, one terminal per role, coordinating only through git. /agent-team init sets up the workspace, /agent-team status shows the board, /agent-team upgrade bumps the pinned version.
+description: A Claude agent team — Product Owner and Architect on Opus 5, Coder and Reviewer on Sonnet 5 — that lives in the project as a pinned git submodule and works from separate clones, one terminal per role, coordinating only through git. /agent-team init sets up the workspace, /agent-team status shows the board, /agent-team upgrade bumps the pinned version.
 argument-hint: "init [--name project] | status | upgrade"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
@@ -15,15 +15,15 @@ One repo, one clone per role, one terminal per clone. All communication is git. 
 ├── team          launcher: ./team po | architect | coder [N] | reviewer | status | log | add coder
 ├── po/           clone · Product Owner · Opus 5 · writes .team/backlog/  on main
 ├── architect/    clone · Architect     · Opus 5 · writes .team/plans/    on main
-├── coder/        clone · Coder         · Opus 5 · code on feat/NNN-*, PRs, .team/notes/
-└── reviewer/     clone · Reviewer      · OpenCode (GPT) · .team/reviews/ on the PR branch + gh pr review
+├── coder/        clone · Coder         · Sonnet 5 · code on feat/NNN-*, PRs, .team/notes/
+└── reviewer/     clone · Reviewer      · Sonnet 5 · .team/reviews/ on the PR branch + gh pr review
 ```
 
 Inside every clone:
 
 ```
 .claude/skills/agent-team/   this submodule: SKILL.md, bin/, team/{TEAM.md,roles,templates}
-AGENTS.md                    project conventions + pointer to team/TEAM.md   (OpenCode reads this)
+AGENTS.md                    project conventions + pointer to team/TEAM.md
 CLAUDE.md                    "read AGENTS.md"
 .team/                       team.md (human, models, pinned version) + the lanes: backlog/ plans/ notes/ reviews/
 ```
@@ -50,7 +50,7 @@ cd <workspace>
 ./team board       # the board, auto-refreshing
 ```
 
-`./team po` etc. start a single role by hand. The Reviewer's model and permissions are pinned in `~/.config/opencode/agent-team-reviewer.json` (via `OPENCODE_CONFIG`).
+`./team po` etc. start a single role by hand. Each role's model is set by its launcher in `bin/` (`claude --model ...`); every role also has a `bin/<role>-fast` twin on a lighter model, which the watchdog swaps in when a spend limit blocks the primary.
 
 ## `status`
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Architect fallback — claude --model sonnet (the primary architect is opus); used by
+# Coder fallback — claude --model haiku (the primary coder is sonnet); used by
 # the watchdog when a spend limit blocks the primary. Note the whole team now
 # draws on one Claude account, so a limit is often account-wide rather than
-# per-model — this buys headroom where opus is capped tighter, not immunity.
+# per-model — this buys headroom where sonnet is capped tighter, not immunity.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
-exec "$(dirname "$0")/_start" architect architect.md \
+exec "$(dirname "$0")/_start" coder coder.md \
   env PATH="$HOME/.local/bin:$PATH" \
-  claude --model sonnet --append-system-prompt-file ROLEFILE "$@"
+  claude --model haiku --append-system-prompt-file ROLEFILE "$@"
