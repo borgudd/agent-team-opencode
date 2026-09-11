@@ -282,10 +282,13 @@ while IFS= read -r story; do
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
   # tokens are kept only if they are exactly three digits; unknown IDs are filtered
-  # later (dep-missing) once the full set of story IDs is known.
+  # later (dep-missing) once the full set of story IDs is known. A plan restating
+  # a dependency its story already declares is not an error (a plan planning
+  # around a dependency is reasonable), so the same ID from both sources is kept
+  # once, in the order it was first seen, rather than listed twice on the board.
   dl=""
   for tok in $(printf '%s %s\n' "$(first_line "$story" depends-on)" "$([ -n "$plan" ] && first_line "$plan" depends-on)" | tr ',' ' '); do
-    [ "${#tok}" -eq 3 ] && case "$tok" in *[!0-9]*) ;; *) dl="$dl $tok" ;; esac
+    [ "${#tok}" -eq 3 ] && case "$tok" in *[!0-9]*) ;; *) case " $dl " in *" $tok "*) ;; *) dl="$dl $tok" ;; esac ;; esac
   done
   deps+=("${dl# }"); miss+=("")
 done <<< "$stories"
