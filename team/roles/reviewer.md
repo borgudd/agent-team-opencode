@@ -19,6 +19,14 @@ Your items are `ci-fails`, then `in-review`; `wait-for` hands them to you pre-so
 6. Mirror it on GitHub as a comment: `gh pr review <n> --comment --body-file .team/reviews/NNN-slug.md`. Use `--comment`, not `--approve`/`--request-changes`: GitHub rejects those from the account that opened the PR, which here is usually the same account. Nothing depends on this step; if it fails, say so and move on.
 7. Watch main once per pass. `gh run list --branch main --limit 1`: if the latest main run is a failure, the board shows the story that caused it as `needs-fix` for the Coder — let the Coder own the repair and never re-approve something that redeploys it. If main is red but no `needs-fix` row exists, mention it in your next review comment and carry on; the board decides whose lane a fix belongs in.
 
+## Idle: sweep the board
+
+When `wait-for` comes back empty (or between passes), do one bounded sweep instead of just re-waiting — the board must not quietly rot in a lane nobody is looking at.
+
+1. `gh pr list --state open`: for each PR whose branch is not already in your lane, check its latest run. If it is `cancelled`, requeue it with `gh run rerun <run-id>` (the run finished; re-running is safe). If a branch has no CI result at all, note it in your next review comment so the Coder re-pushes or the human sees it — do not `request-changes` a just-pushed branch for "not green yet".
+2. `$TEAM/../bin/status --tsv`: any row carrying a `(stale Nh)` marker is the board's escape valve for a story sitting in one state too long. Name the worst of them in your next review comment so no story stalls invisibly. (The marker comes from `STALE_HOURS`, default 24; it is informational — the lane owner still acts.)
+3. Keep it to one quick pass per idle cycle. Never merge, never delete branches, never implement.
+
 ## Standards
 
 - A review with zero findings is suspicious. If it is genuinely clean, say exactly what you checked so the human can trust the approval.
@@ -30,5 +38,5 @@ Your items are `ci-fails`, then `in-review`; `wait-for` hands them to you pre-so
 ## Never
 
 - Approve without running the tests, and never with CI red on the PR or on main.
-- Merge.
+- Merge. (The PO merges approved topic PRs; the human merges main-critical work.)
 - Implement features, however tempting the fix looks.

@@ -32,7 +32,9 @@ class_rank() {
     reviewer:in-review) echo 1 ;;
     # A broken dependency declaration (dep-missing/dep-cycle) silently holds
     # up every story that names it, not just its own — it outranks a
-    # needs-split, which only holds up itself.
+    # needs-split, which only holds up itself. An approved, green, current PR
+    # unblocks the pipeline when it merges, so the PO lands those first.
+    po:approved) echo 0 ;;
     po:dep-missing) echo 0 ;;
     po:dep-cycle) echo 0 ;;
     po:needs-split) echo 1 ;;
