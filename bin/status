@@ -10,8 +10,10 @@
 #   in-review          PR open, no review yet or new commits since → reviewer
 #   changes-requested  review file on the branch says so           → coder
 #   approved           review file on the branch says so           → human (merge)
-#   ci-fails          PR branch has a failing CI run                  → reviewer
-#   needs-fix         main CI is red and this story merged it         → coder
+#   ci-fails           PR head is red or conflicts with main,        → coder
+#                       whatever the review verdict says (checked after
+#                       it, overriding it; pending/unknown checks don't count)
+#   needs-fix          main CI is red and this story merged it        → coder
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
@@ -45,8 +47,14 @@ prs=""
 if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
   gh_why="no gh"
   echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as unknown" >&2
-elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName \
-            --jq '.[] | [.headRefName, .number, .state] | @tsv' 2>/dev/null)"; then
+elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName,mergeable,statusCheckRollup \
+            --jq '.[] | [.headRefName, .number, .state,
+                         (if .mergeable == "CONFLICTING" then "1" else "" end),
+                         ((.statusCheckRollup // []) | map(select((.conclusion // .state // "")
+                             | IN("FAILURE","ERROR","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE")))
+                           | map((.name // .context // "?") | gsub("\t"; "") | .[0:30])
+                           | .[0] // "")
+                        ] | @tsv' 2>/dev/null)"; then
   have_gh=1
 else
   # The distinction that matters. A failed query and a repo with no PRs both
@@ -58,16 +66,18 @@ else
   echo "warning: gh could not list PRs (rate limit? network?) — PR states unknown; branches show as unknown" >&2
 fi
 
-# CI visibility for the board. Two extra gh list calls, once per poll: the set of
-# branches whose PR-event runs have failed (red PR -> ci-fails), and the latest main
-# run (red main, attributed to a story by the 3-digit id in its commit message ->
-# needs-fix). Both are advisory facts about GitHub; when gh cannot be asked they
-# simply leave the existing lanes alone, matching the prs block above.
-redprs=""; redmain=""
+# CI visibility for main. One extra gh list call, once per poll: the latest main
+# run, attributed to a story by the 3-digit id in its commit message (red main ->
+# needs-fix). A red or conflicting *PR* head is no longer read from a separate
+# `gh run list` — the `prs` query above already carries `mergeable` and
+# `statusCheckRollup` for the head commit itself, which is both cheaper (one
+# fewer call) and correct where the old `redprs` (any failed pull_request run
+# among the last 300) was not: a branch that was red once and is green now used
+# to stay `ci-fails` forever, because nothing there ever looked at the *current*
+# head. This is advisory, like the prs block above; when gh cannot be asked it
+# simply leaves needs-fix alone.
+redmain=""
 if [ "$have_gh" -eq 1 ]; then
-  redprs="$(gh run list --limit 300 --json headBranch,event,conclusion \
-            --jq '.[] | select(.event=="pull_request" and .conclusion=="failure") | .headBranch' \
-            2>/dev/null | sort -u | tr '\n' ' ')"
   latest_main="$(gh run list --branch "${MAIN#origin/}" --limit 1 --json conclusion,displayTitle \
             --jq '.[0].conclusion, .[0].displayTitle' 2>/dev/null)"
   mc="$(printf "%s" "$latest_main" | sed -n 1p)"
@@ -157,11 +167,15 @@ while IFS= read -r story; do
     # unattended Coder picks the row up. `wait-for` matches the role exactly.
     status=unknown; next="—"; where="$branch ($gh_why)"
   else
-    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3; exit}')"
+    # \x02 (not tab) separates these four: bash's `read` collapses consecutive
+    # tabs and strips them at the edges even with IFS explicitly set to one
+    # (see the same fix in bin/wait-for), which would silently drop an empty
+    # conflict/red column here.
+    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {printf "%s\002%s\002%s\002%s\n", $2, $3, $4, $5; exit}')"
     if [ -z "$pr" ]; then
       status=in-progress; next=coder; where="$branch"
     else
-      IFS=$'\t' read -r num state <<< "$pr"
+      IFS=$'\x02' read -r num state conflict red <<< "$pr"
       where="#$num"
       case "$state" in
         MERGED) status=done; next="—" ;;
@@ -187,10 +201,21 @@ while IFS= read -r story; do
           else
             status=in-review; next=reviewer
           fi
-      case " $redprs " in
-        *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI red)" ;;
-      esac
-      ;;
+          # A red or conflicting head commit is the Coder's turn whatever the
+          # review verdict just computed above says — checked after it, not
+          # instead of it, so it overrides even `approved` (a human must never
+          # be told to merge a PR that cannot merge or does not pass CI), and a
+          # later green re-run naturally falls back to reading the verdict
+          # normally again. Only a literal CONFLICTING counts (mergeable is
+          # computed lazily and reads UNKNOWN right after a push); only a
+          # *completed* failing check on the head commit counts, never a
+          # pending/unknown one.
+          if [ "$conflict" = "1" ]; then
+            status=ci-fails; next=coder; where="$where (conflict with main)"
+          elif [ -n "$red" ]; then
+            status=ci-fails; next=coder; where="$where (CI red: $red)"
+          fi
+          ;;
       esac
     fi
   fi

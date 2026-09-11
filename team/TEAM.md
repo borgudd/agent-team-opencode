@@ -44,10 +44,14 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | PR open, no review file yet, or code commits after the last review | `in-review` — Reviewer's turn |
 | `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
 | it says `verdict: approve` | `approved` — human merges |
+| PR open and its head commit has a completed failing check, or it conflicts with main | `ci-fails` — Coder's turn, whatever the review verdict just said (checked after it, overriding it, even `approved`) |
+| this story's merge turned main CI red | `needs-fix` — Coder's turn (overrides `done`, `approved`, `in-review`, `changes-requested`, `in-progress`, `planned`, `needs-replan`) |
 | PR merged | `done` |
 | a declared dependency (story or plan `depends-on:`) is not `done` yet | `blocked` — nobody (wait; unblocks itself) |
 | `depends-on:` names a story that does not exist | `dep-missing` — PO fixes the declaration |
 | declared dependencies form a loop (including a story that depends on itself) | `dep-cycle` — PO fixes the declaration |
+
+A pending or `UNKNOWN` check/mergeable state counts for nothing — only a completed failure, or a literal `CONFLICTING`, flips the row. A later red run on the same head (a re-run after a fix) flips it back to the Coder even after `approved`.
 
 A story or plan can declare `depends-on: 001, 002` — one line, comma-separated, three-digit IDs. Only `done` satisfies a dependency; a dependency that GitHub cannot be queried for, or that is itself `blocked`, counts as not done, so a blocked story never degrades into work. A dependency discovered while planning goes in the plan's frontmatter (never by editing the story).
 

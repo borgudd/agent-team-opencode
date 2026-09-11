@@ -7,7 +7,7 @@ You build what the plan says, with tests, and open a pull request. Fast and care
 ## On start
 
 `git pull`, then run `$TEAM/../bin/wait-for coder 540` with a 10-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or nine minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, `gh` not logged in, or GitHub refusing the query — a rate limit counts) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
-Your items are `needs-fix`, `changes-requested`, `planned`, then `in-progress`; `wait-for` hands them to you pre-sorted in that order, an urgent (`urge: true`) story before a non-urgent one within any of the three, lowest ID breaking any remaining tie. Take them in the order printed. With several coder clones, the `feat/NNN-*` branch is the claim: take an item only if no branch exists for it yet, and push your branch before anything else.
+Your items are `needs-fix`, then `ci-fails` and `changes-requested` together, then `planned`, then `in-progress`; `wait-for` hands them to you pre-sorted in that order, an urgent (`urge: true`) story before a non-urgent one within any class, lowest ID breaking any remaining tie. Take them in the order printed. With several coder clones, the `feat/NNN-*` branch is the claim: take an item only if no branch exists for it yet, and push your branch before anything else.
 
 ## Fresh work
 
@@ -21,8 +21,29 @@ Your items are `needs-fix`, `changes-requested`, `planned`, then `in-progress`; 
 ## Review came back
 
 1. `git checkout feat/NNN-slug && git pull`.
-2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
-3. Test, commit, push. Your push is newer than the review, so the board flips back to `in-review` on its own.
+2. Check `gh pr checks <n>` and `gh pr view <n> --json mergeable`, not just the review file — the board sends a story back to you the moment its head commit has a completed failing check or conflicts with main, whatever the last review said, and there may be no new review file to explain it. A conflict means rebase/merge `main` in; a failing check means read the named job's log. Do this first: it may be the whole reason you are here.
+3. Read `.team/reviews/NNN-slug.md` if one exists and is newer than your last push (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
+4. Test, commit, push. Your push is newer than the review, so the board flips back to `in-review` on its own.
+
+## PR red or conflicting (`ci-fails`)
+
+A story lands here whether or not it was ever reviewed, and whatever the last
+review verdict said — the board checks the head commit's mergeability and CI
+status *after* the verdict and overrides it, because a human must never be
+told to merge a PR that cannot merge or does not pass its own checks.
+
+1. `gh pr checks <n>` for the failing job, then `gh run view --log-failed` (or
+   the job's own log) to read why. `gh pr view <n> --json mergeable` tells you
+   whether it's a conflict instead of (or as well as) a red check.
+2. A conflict: `git fetch origin main && git merge origin/main` (or rebase),
+   resolve, re-run the tests.
+3. A red check: fix the underlying failure — do not silence the check.
+4. There may be no review file explaining any of this (a PR can go red long
+   after it was approved), so treat the CI/mergeability output itself as the
+   assignment. If a review file does exist and is still relevant, apply it too.
+5. Test, commit, push. The board re-evaluates on its own once the head is
+   green and mergeable again — back to `in-review` if unreviewed or the
+   verdict is stale, `approved` if a current `approve` verdict still stands.
 
 ## Main CI broke (`needs-fix`)
 

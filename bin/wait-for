@@ -6,11 +6,12 @@
 # usage: wait-for <po|architect|coder|reviewer> [MAX seconds, default 540] [POLL seconds, default 30]
 #
 # Rows for a role are offered pre-sorted: precedence class first (a role's own
-# statuses, most-urgent-to-act-on first — e.g. the Coder clears
-# `needs-fix` before `changes-requested` before `planned`), then urgency (`urge: true` on a
-# story, story 027), then story ID. Urgency orders *within* a class; it never
-# lets a later class jump an earlier one, and a status not listed for a role
-# never reaches it — `bin/status` already withheld it via `next`.
+# statuses, most-urgent-to-act-on first — e.g. the Coder clears `needs-fix`
+# before `ci-fails`/`changes-requested` before `planned`), then urgency
+# (`urge: true` on a story, story 027), then story ID. Urgency orders *within*
+# a class; it never lets a later class jump an earlier one, and a status not
+# listed for a role never reaches it — `bin/status` already withheld it via
+# `next`.
 set -uo pipefail
 role="${1:?role}"; max="${2:-540}"; every="${3:-30}"
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -25,10 +26,10 @@ class_rank() {
     architect:needs-replan) echo 0 ;;
     architect:ready) echo 1 ;;
     coder:needs-fix) echo 0 ;;
+    coder:ci-fails) echo 1 ;;
     coder:changes-requested) echo 1 ;;
     coder:planned) echo 2 ;;
     coder:in-progress) echo 3 ;;
-    reviewer:ci-fails) echo 0 ;;
     reviewer:in-review) echo 1 ;;
     # A broken dependency declaration (dep-missing/dep-cycle) silently holds
     # up every story that names it, not just its own — it outranks a
