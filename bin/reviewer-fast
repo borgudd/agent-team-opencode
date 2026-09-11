@@ -6,4 +6,4 @@
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
   env PATH="$HOME/.local/bin:$PATH" \
-  claude --model haiku --append-system-prompt-file ROLEFILE "$@"
+  claude --model sonnet --append-system-prompt-file ROLEFILE "$@"
