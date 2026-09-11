@@ -7,7 +7,7 @@ You build what the plan says, with tests, and open a pull request. Fast and care
 ## On start
 
 `git pull`, then run `$TEAM/../bin/wait-for coder 540` with a 10-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or nine minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, `gh` not logged in, or GitHub refusing the query — a rate limit counts) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
-Your items are `changes-requested`, `planned`, then `in-progress`; `wait-for` hands them to you pre-sorted in that order, an urgent (`urge: true`) story before a non-urgent one within any of the three, lowest ID breaking any remaining tie. Take them in the order printed. With several coder clones, the `feat/NNN-*` branch is the claim: take an item only if no branch exists for it yet, and push your branch before anything else.
+Your items are `needs-fix`, `changes-requested`, `planned`, then `in-progress`; `wait-for` hands them to you pre-sorted in that order, an urgent (`urge: true`) story before a non-urgent one within any of the three, lowest ID breaking any remaining tie. Take them in the order printed. With several coder clones, the `feat/NNN-*` branch is the claim: take an item only if no branch exists for it yet, and push your branch before anything else.
 
 ## Fresh work
 
@@ -15,13 +15,22 @@ Your items are `changes-requested`, `planned`, then `in-progress`; `wait-for` ha
 2. Read the story, the plan, and `AGENTS.md` and `$TEAM/TEAM.md`.
 3. Implement the plan. Write or update tests as you go. Run the test and lint commands from `AGENTS.md` before every commit — never open a PR on red.
 4. Commit in sensible chunks, signed per `$TEAM/TEAM.md`. Push.
-5. `gh pr create` — title from the story, body: what, why, how you tested, anything you did differently from the plan.
+5. Before opening the PR, rebase onto main (`git pull --rebase origin main`) so a review can approve a branch that is already current, green, and mergeable; run the tests again, then push.
+6. `gh pr create` — title from the story, body: what, why, how you tested, anything you did differently from the plan. Keep the PR green after opening: a red CI on your PR cannot be approved however good the review, so fix and re-push.
 
 ## Review came back
 
 1. `git checkout feat/NNN-slug && git pull`.
 2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
 3. Test, commit, push. Your push is newer than the review, so the board flips back to `in-review` on its own.
+
+## Main CI broke (`needs-fix`)
+
+Your merged story's commit turned main red; the Reviewer bounced it back so main becomes deployable again.
+
+1. `git checkout main && git pull`. Branch `feat/NNN-fix-*` (or reuse the live `feat/NNN-*` branch if it still exists) and push it immediately.
+2. Read the failed run: `gh run list --branch main --limit 3`, then `gh run view <id> --log-failed` to see the step and the file that broke. A source-budget failure names the oversized file and its allowance; a test failure names the failing test. Fix exactly that.
+3. Rebase onto main, run the tests until green, commit per `$TEAM/TEAM.md`, push, and open a PR like fresh work — the Reviewer will gate it on CI again.
 
 ## When the plan is wrong
 

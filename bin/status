@@ -10,6 +10,8 @@
 #   in-review          PR open, no review yet or new commits since → reviewer
 #   changes-requested  review file on the branch says so           → coder
 #   approved           review file on the branch says so           → human (merge)
+#   ci-fails          PR branch has a failing CI run                  → reviewer
+#   needs-fix         main CI is red and this story merged it         → coder
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
@@ -54,6 +56,25 @@ else
   # in the Coder's lane, with no warning, because the error was swallowed.
   gh_why="gh failed"
   echo "warning: gh could not list PRs (rate limit? network?) — PR states unknown; branches show as unknown" >&2
+fi
+
+# CI visibility for the board. Two extra gh list calls, once per poll: the set of
+# branches whose PR-event runs have failed (red PR -> ci-fails), and the latest main
+# run (red main, attributed to a story by the 3-digit id in its commit message ->
+# needs-fix). Both are advisory facts about GitHub; when gh cannot be asked they
+# simply leave the existing lanes alone, matching the prs block above.
+redprs=""; redmain=""
+if [ "$have_gh" -eq 1 ]; then
+  redprs="$(gh run list --limit 300 --json headBranch,event,conclusion \
+            --jq '.[] | select(.event=="pull_request" and .conclusion=="failure") | .headBranch' \
+            2>/dev/null | sort -u | tr '\n' ' ')"
+  latest_main="$(gh run list --branch "${MAIN#origin/}" --limit 1 --json conclusion,displayTitle \
+            --jq '.[0].conclusion, .[0].displayTitle' 2>/dev/null)"
+  mc="$(printf "%s" "$latest_main" | sed -n 1p)"
+  mt="$(printf "%s" "$latest_main" | sed -n 2p)"
+  if [ "$mc" = "failure" ] && [ -n "$mt" ]; then
+    redmain="$(printf "%s" "$mt" | grep -oE "[0-9]{3}" | head -1)"
+  fi
 fi
 
 stories="$(git ls-tree -r --name-only "$MAIN" -- .team/backlog/ 2>/dev/null | grep -E '/[0-9]{3}-.*\.md$' | sort)"
@@ -165,7 +186,11 @@ while IFS= read -r story; do
             fi
           else
             status=in-review; next=reviewer
-          fi ;;
+          fi
+      case " $redprs " in
+        *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI red)" ;;
+      esac
+      ;;
       esac
     fi
   fi
@@ -177,6 +202,14 @@ while IFS= read -r story; do
   case "$st_override" in
     done|closed|cancelled) status="$st_override"; next="—"; where="gh" ;;
   esac
+  # Main CI red from this story's merge: the Coder repairs it, winning over `done`
+  # (a real red main is current fact); closed/cancelled is the human saying stop.
+  if [ -n "$redmain" ] && [ "$redmain" = "$id" ]; then
+    case "$status" in
+      done|approved|in-review|changes-requested|in-progress|planned|needs-replan)
+        status=needs-fix; next=coder; where="main CI red — fix $id" ;;
+    esac
+  fi
   ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where"); urgs+=("$urgent")
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;

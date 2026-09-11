@@ -7,7 +7,7 @@
 #
 # Rows for a role are offered pre-sorted: precedence class first (a role's own
 # statuses, most-urgent-to-act-on first — e.g. the Coder clears
-# `changes-requested` before `planned`), then urgency (`urge: true` on a
+# `needs-fix` before `changes-requested` before `planned`), then urgency (`urge: true` on a
 # story, story 027), then story ID. Urgency orders *within* a class; it never
 # lets a later class jump an earlier one, and a status not listed for a role
 # never reaches it — `bin/status` already withheld it via `next`.
@@ -24,10 +24,12 @@ class_rank() {
   case "$1:$2" in
     architect:needs-replan) echo 0 ;;
     architect:ready) echo 1 ;;
-    coder:changes-requested) echo 0 ;;
-    coder:planned) echo 1 ;;
-    coder:in-progress) echo 2 ;;
-    reviewer:in-review) echo 0 ;;
+    coder:needs-fix) echo 0 ;;
+    coder:changes-requested) echo 1 ;;
+    coder:planned) echo 2 ;;
+    coder:in-progress) echo 3 ;;
+    reviewer:ci-fails) echo 0 ;;
+    reviewer:in-review) echo 1 ;;
     # A broken dependency declaration (dep-missing/dep-cycle) silently holds
     # up every story that names it, not just its own — it outranks a
     # needs-split, which only holds up itself.
