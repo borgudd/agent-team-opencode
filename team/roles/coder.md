@@ -39,7 +39,7 @@ Your merged story's commit turned main red; the Reviewer bounced it back so main
 
 ## Never
 
-- Merge. The human merges.
+- Merge. The PO merges approved topic PRs; the human merges main-critical work. Your branch is handed back to you if it goes red or behind main (story 048) — keep it green and current so it can be approved and merged without a round trip.
 - Change scope beyond the story. A "while I'm here" is a line for the PO in the PR body, not a diff.
 - Skip tests because it is "simple". Simple things ship the most bugs.
 - Silence a failing test to get green.

@@ -10,8 +10,13 @@
 #   in-review          PR open, no review yet or new commits since → reviewer
 #   changes-requested  review file on the branch says so           → coder
 #   approved           review file on the branch says so           → human (merge)
-#   ci-fails          PR branch has a failing CI run                  → reviewer
+#   ci-fails          PR branch's latest run failed, errored, timed out,
+#                     was cancelled, or never ran                     → reviewer
 #   needs-fix         main CI is red and this story merged it         → coder
+#   approved          review file on the branch says so               → po (merge)
+# Rows in an actionable state whose last activity is older than STALE_HOURS
+# (default 24) get a "(stale Nh)" marker on the title — the board's escape
+# valve, so no story can quietly stall in a lane.
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
@@ -35,6 +40,13 @@ DEFAULT="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed '
 [ -n "$DEFAULT" ] || DEFAULT=main
 MAIN="origin/$DEFAULT"
 
+# How old a row may be in an actionable state before it gets a `(stale Nh)`
+# marker. Age comes from the PR's last update (when the story has a PR) or the
+# story/branch commit time otherwise; informational — it exists so wait-for
+# hands an opener a stale story and the Reviewer's idle sweep can name it.
+STALE_HOURS="${STALE_HOURS:-24}"
+now="$(date +%s)"
+
 # Every PR in the repo, in one query. It used to be one `gh pr list` per story,
 # which is a GraphQL call per story per run: a thirty-story backlog polled by
 # four roles every ninety seconds spends an API budget in an afternoon, and what
@@ -45,8 +57,8 @@ prs=""
 if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
   gh_why="no gh"
   echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as unknown" >&2
-elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName \
-            --jq '.[] | [.headRefName, .number, .state] | @tsv' 2>/dev/null)"; then
+elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName,updatedAt \
+            --jq '.[] | [.headRefName, .number, .state, ((now - (.updatedAt|fromdateiso8601)) / 3600 | floor)] | @tsv' 2>/dev/null)"; then
   have_gh=1
 else
   # The distinction that matters. A failed query and a repo with no PRs both
@@ -59,15 +71,28 @@ else
 fi
 
 # CI visibility for the board. Two extra gh list calls, once per poll: the set of
-# branches whose PR-event runs have failed (red PR -> ci-fails), and the latest main
-# run (red main, attributed to a story by the 3-digit id in its commit message ->
+# branches whose latest PR-event run went badly — failed, errored, timed out, or
+# cancelled (red or stalled PR -> ci-fails), plus branches with an open PR that
+# has no PR-event run at all (stalled -> ci-fails) — and the latest main run
+# (red main, attributed to a story by the 3-digit id in its commit message ->
 # needs-fix). Both are advisory facts about GitHub; when gh cannot be asked they
 # simply leave the existing lanes alone, matching the prs block above.
-redprs=""; redmain=""
+redprs=""; redmain=""; stale_prs=""
 if [ "$have_gh" -eq 1 ]; then
-  redprs="$(gh run list --limit 300 --json headBranch,event,conclusion \
-            --jq '.[] | select(.event=="pull_request" and .conclusion=="failure") | .headBranch' \
-            2>/dev/null | sort -u | tr '\n' ' ')"
+  raw_runs="$(gh run list --limit 500 --json headBranch,event,conclusion,createdAt \
+            --jq '.[] | select(.event=="pull_request") | [.headBranch,.conclusion,.createdAt] | @tsv' \
+            2>/dev/null)"
+  # Newest run per branch first (createdAt sorts lexicographically; gh list is
+  # already newest-first, this is belt and braces), then the ones that went bad.
+  redprs="$(printf '%s\n' "$raw_runs" | sort -k3r | awk -F'\t' '!s[$1]++ { if ($2=="failure"||$2=="errored"||$2=="timed_out"||$2=="cancelled") print $1 }' | sort -u | tr '\n' ' ')"
+  runs_branches="$(printf '%s\n' "$raw_runs" | cut -f1 | sort -u | tr '\n' ' ')"
+  if [ -n "$prs" ] && [ -n "$runs_branches" ]; then
+    # An open PR branch the runs list has never seen is stalled — the reviewer
+    # sweep requeues or re-triggers it. Brand-new branches appear in the runs
+    # list the moment a workflow starts (queued), so this does not false-fire.
+    stale_prs="$(printf '%s\n' "$prs" | awk -F'\t' '$3=="OPEN" && $1!="" {print $1}' \
+      | while read -r b; do case " $runs_branches " in *" $b "*) ;; *) printf '%s\n' "$b" ;; esac; done | sort -u | tr '\n' ' ')"
+  fi"
   latest_main="$(gh run list --branch "${MAIN#origin/}" --limit 1 --json conclusion,displayTitle \
             --jq '.[0].conclusion, .[0].displayTitle' 2>/dev/null)"
   mc="$(printf "%s" "$latest_main" | sed -n 1p)"
@@ -107,7 +132,7 @@ in_cycle()   { # $1 = start index; true if a declared cycle passes through it (i
 # ---- pass one: the intrinsic status of every story, exactly as before. Dependency
 # gating cannot happen inline: a row's verdict depends on the *other* rows, so every
 # intrinsic status must be known before any final row is decided. Collect it all first.
-ids=(); titles=(); sts=(); nxs=(); whs=(); deps=(); miss=(); urgs=()
+ids=(); titles=(); sts=(); nxs=(); whs=(); deps=(); miss=(); urgs=(); aghs=(); paths=()
 while IFS= read -r story; do
   base="$(basename "$story" .md)"; id="${base%%-*}"
   title="$(first_line "$story" title)"
@@ -121,7 +146,7 @@ while IFS= read -r story; do
   plan="$(git ls-tree -r --name-only "$MAIN" -- .team/plans/ | grep "/${id}-" | head -1)"
   note="$(git ls-tree -r --name-only "$MAIN" -- .team/notes/ | grep "/${id}-" | head -1)"
   branch="$(git branch -r --list "origin/feat/${id}-*" | head -1 | sed 's|^ *origin/||')"
-  status=""; next=""; where=""
+  status=""; next=""; where=""; age_v=""
 
   if [ -z "$plan" ]; then
     status=ready; next=architect
@@ -136,12 +161,13 @@ while IFS= read -r story; do
     # `planned` forever the moment its branch is gone, so the Coder redoes it.
     fallback_pr=""
     if [ "$have_gh" -eq 1 ]; then
-      fallback_pr="$(printf '%s\n' "$prs" | awk -F'\t' -v id="$id" '$1 ~ "^feat/" id "-" {print $1"\t"$2"\t"$3; exit}')"
+      fallback_pr="$(printf '%s\n' "$prs" | awk -F'\t' -v id="$id" '$1 ~ "^feat/" id "-" {print $1"\t"$2"\t"$3"\t"$4; exit}')"
     fi
     if [ -z "$fallback_pr" ]; then
       status=planned; next=coder; where="$plan"
     else
-      IFS=$'\t' read -r _fb_branch fb_num fb_state <<< "$fallback_pr"
+      IFS=$'\t' read -r _fb_branch fb_num fb_state fb_age <<< "$fallback_pr"
+      age_v="${fb_age:-}"
       where="#$fb_num"
       case "$fb_state" in
         MERGED) status=done; next="—" ;;
@@ -156,12 +182,15 @@ while IFS= read -r story; do
     # Not `in-progress`: we do not know, and `next` must not name a role, or an
     # unattended Coder picks the row up. `wait-for` matches the role exactly.
     status=unknown; next="—"; where="$branch ($gh_why)"
+    bct="$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)"; [ "$bct" -gt 0 ] 2>/dev/null && age_v=$(( (now - bct) / 3600 ))
   else
-    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3; exit}')"
+    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3"\t"$4; exit}')"
     if [ -z "$pr" ]; then
       status=in-progress; next=coder; where="$branch"
+      bct="$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)"; [ "$bct" -gt 0 ] 2>/dev/null && age_v=$(( (now - bct) / 3600 ))
     else
-      IFS=$'\t' read -r num state <<< "$pr"
+      IFS=$'\t' read -r num state prh <<< "$pr"
+      age_v="$prh"
       where="#$num"
       case "$state" in
         MERGED) status=done; next="—" ;;
@@ -177,7 +206,7 @@ while IFS= read -r story; do
             work_ts="$(git log -1 --format=%ct "origin/$branch" -- . ':(exclude).team/reviews' 2>/dev/null || echo 0)"
             if [ "${review_ts:-0}" -ge "${work_ts:-0}" ]; then
               case "$verdict" in
-                approve*)  status=approved; next=human ;;
+                approve*)  status=approved; next=po ;;  # PO merges the green, current, approved story PRs
                 request*|changes*) status=changes-requested; next=coder ;;
                 *) status=in-review; next=reviewer; where="$where (review has no verdict)" ;;
               esac
@@ -190,6 +219,11 @@ while IFS= read -r story; do
       case " $redprs " in
         *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI red)" ;;
       esac
+      if [ "$status" != ci-fails ]; then
+        case " $stale_prs " in
+          *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI stalled)" ;;
+        esac
+      fi
       ;;
       esac
     fi
@@ -210,7 +244,7 @@ while IFS= read -r story; do
         status=needs-fix; next=coder; where="main CI red — fix $id" ;;
     esac
   fi
-  ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where"); urgs+=("$urgent")
+  ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where"); urgs+=("$urgent"); aghs+=("$age_v"); paths+=("$story")
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
   # tokens are kept only if they are exactly three digits; unknown IDs are filtered
@@ -305,6 +339,14 @@ done
 
 for i in $(seq 0 $((n - 1))); do
   urgcol=""; [ "${urgs[$i]}" -eq 1 ] && urgcol="urgent"
-  if [ "$TSV" -eq 1 ]; then printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${ids[$i]}" "${fst[$i]}" "${titles[$i]}" "${fnx[$i]}" "${fwh[$i]}" "${urgs[$i]}"
-  else printf '%-4s %-5s %-18s %-38s %-10s %s\n' "${ids[$i]}" "$urgcol" "${fst[$i]}" "${titles[$i]:0:38}" "${fnx[$i]}" "${fwh[$i]}"; fi
+  h="${aghs[$i]:-}"
+  if [ -z "$h" ] && [ -n "${paths[$i]}" ]; then
+    c="$(ctime "${paths[$i]}")"; [ "$c" -gt 0 ] 2>/dev/null && h="$(( (now - c) / 3600 ))"
+  fi
+  ttl="${titles[$i]}"
+  if [ -n "$h" ] && [ "$h" -ge "$STALE_HOURS" ] 2>/dev/null; then
+    case "${fst[$i]}" in done|closed|cancelled) ;; *) ttl="$ttl (stale ${h}h)" ;; esac
+  fi
+  if [ "$TSV" -eq 1 ]; then printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${ids[$i]}" "${fst[$i]}" "$ttl" "${fnx[$i]}" "${fwh[$i]}" "${urgs[$i]}"
+  else printf '%-4s %-5s %-18s %-38s %-10s %s\n' "${ids[$i]}" "$urgcol" "${fst[$i]}" "${ttl:0:38}" "${fnx[$i]}" "${fwh[$i]}"; fi
 done

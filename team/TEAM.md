@@ -9,26 +9,26 @@ The team itself is a git submodule pinned to a version; the project's own files 
 
 | Role | Runs on | Lane (the only place you write) | Never |
 |---|---|---|---|
-| Product Owner | Opus 5 | `.team/backlog/` on main | plans, code |
+| Product Owner | Opus 5 | `.team/backlog/` on main; merges approved topic PRs | plans, code, forcing a merge |
 | Architect | Opus 5 | `.team/plans/` on main | production code |
 | Coder | Sonnet 5 | code + tests on `feat/NNN-*`, PRs, `.team/notes/` on main | scope changes, merging |
 | Reviewer | Sonnet 5 | `.team/reviews/` on the PR branch, reviews on GitHub | rewriting the code |
-| Human | — | merging | — |
+| Human | — | main-critical merges | — |
 
-Each role works in its own clone of this repo, in its own terminal, unattended: Architect, Coder and Reviewer sit in a loop on `bin/wait-for <role>`, which returns the moment the board has something in their lane. Nobody looks at anyone else's working directory. **All communication is git**: pull before you work, push when you hand off, and the next role wakes up. The human talks to the PO and merges. Always.
+Each role works in its own clone of this repo, in its own terminal, unattended: Architect, Coder and Reviewer sit in a loop on `bin/wait-for <role>`, which returns the moment the board has something in their lane. Nobody looks at anyone else's working directory. **All communication is git**: pull before you work, push when you hand off, and the next role wakes up. The human talks to the PO; the PO merges approved story PRs, and the human merges main-critical work.
 
 ## How work flows
 
 ```
-story → plan → branch + PR → review → fixes → human merges
+story → plan → branch + PR → review → fixes → PO merges (human: main-critical)
 ```
 
 1. **PO** writes `.team/backlog/NNN-slug.md` on main. Pushes.
 2. **Architect** pulls, inspects the code, writes `.team/plans/NNN-slug.md` on main. Pushes.
 3. **Coder** pulls, branches `feat/NNN-slug`, implements, tests, pushes, opens a PR with `gh pr create`.
-4. **Reviewer** pulls, `gh pr checkout`, reviews, writes `.team/reviews/NNN-slug.md` (with `verdict:`) on the PR branch, pushes. That push is the decision; a `gh pr review --comment` mirrors it on GitHub.
+4. **Reviewer** pulls, `gh pr checkout`, gates on CI and currency, reviews, writes `.team/reviews/NNN-slug.md` (with `verdict:`) on the PR branch, pushes. That push is the decision; a `gh pr review --comment` mirrors it on GitHub.
 5. **Coder** pulls the branch, fixes, pushes.
-6. **Human** merges.
+6. **PO** merges the approved, green, current PR (`gh pr merge --squash --delete-branch`); main-critical work stays the human's merge.
 
 ## Status is derived, never written
 
@@ -43,8 +43,10 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | branch exists, no PR | `in-progress` — Coder |
 | PR open, no review file yet, or code commits after the last review | `in-review` — Reviewer's turn |
 | `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
-| it says `verdict: approve` | `approved` — human merges |
+| it says `verdict: approve` | `approved` — PO merges |
 | PR merged | `done` |
+| the PR branch's latest PR CI run failed, errored, timed out, was cancelled, or never ran | `ci-fails` — Reviewer's turn (requeue or hand back) |
+| the latest main run failed and its commit names story NNN | `needs-fix` — Coder repairs Red main |
 | a declared dependency (story or plan `depends-on:`) is not `done` yet | `blocked` — nobody (wait; unblocks itself) |
 | `depends-on:` names a story that does not exist | `dep-missing` — PO fixes the declaration |
 | declared dependencies form a loop (including a story that depends on itself) | `dep-cycle` — PO fixes the declaration |
@@ -52,6 +54,8 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 A story or plan can declare `depends-on: 001, 002` — one line, comma-separated, three-digit IDs. Only `done` satisfies a dependency; a dependency that GitHub cannot be queried for, or that is itself `blocked`, counts as not done, so a blocked story never degrades into work. A dependency discovered while planning goes in the plan's frontmatter (never by editing the story).
 
 A story can declare `urge: true` in its frontmatter (the PO's call, story-only — a plan cannot set it) to jump the queue: `bin/wait-for` offers a role its urgent rows before its non-urgent ones, ID order otherwise unchanged. Urgency orders *within* a role's own precedence classes; it never lets a `planned` story jump a `changes-requested` one, and never overrides `blocked` — a declared dependency still wins. Anything but `true`/`yes`/`1` (a bare `urge:`, a typo, a word) means not urgent, and the story is still listed. The board (`bin/status`) shows which rows are urgent; `bin/wait-for` is what actually reorders them.
+
+Nothing is allowed to rot quietly. A row that has sat in an actionable state for more than `STALE_HOURS` (default 24, env-overridable) gets a `(stale Nh)` marker on its title — age comes from the PR's last update, or the story/branch commit time otherwise. The marker is informational: the lane owner still acts, and when the Reviewer's lane is empty it runs one budgeted sweep — requeues cancelled CI runs, and names the worst stale rows in its next review comment so no story stalls invisibly.
 
 Because every role writes in a different folder or on a different branch, there is nothing to conflict on. `git log -- .team/` is the team's history; `git log --author=Coder` is one role's.
 
