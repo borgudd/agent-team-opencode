@@ -21,8 +21,18 @@
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
 #   blocked            a declared dependency is not `done` yet    → nobody (wait)
+#   held               `not-before:` date on the story is still in the future → nobody (wait)
 #   dep-missing        `depends-on:` names a story that does not exist → po
 #   dep-cycle          declared dependencies form a loop (incl. self) → po
+#   date-invalid       `not-before:` does not parse as YYYY-MM-DD       → po
+#
+# `not-before: YYYY-MM-DD` (story frontmatter only, like `urge:`) holds a story
+# out of every lane until that date. The date is compared to this host's own
+# `date +%F` — local calendar day, evaluated once per run, no timezone field.
+# A date already today or in the past has no effect. Held work still appears
+# on the board (WHERE names the date) — invisible work is the failure mode
+# this exists to prevent. A malformed date is `date-invalid`, not silently
+# held forever or dropped.
 #
 # A story — or a plan, discovered while planning — may declare `depends-on: 001, 002`
 # in its frontmatter: one line, comma-separated, plain IDs; nothing here parses YAML.
@@ -134,7 +144,7 @@ in_cycle()   { # $1 = start index; true if a declared cycle passes through it (i
 # ---- pass one: the intrinsic status of every story, exactly as before. Dependency
 # gating cannot happen inline: a row's verdict depends on the *other* rows, so every
 # intrinsic status must be known before any final row is decided. Collect it all first.
-ids=(); titles=(); sts=(); nxs=(); whs=(); deps=(); miss=(); urgs=(); aghs=(); paths=()
+ids=(); titles=(); sts=(); nxs=(); whs=(); deps=(); miss=(); urgs=(); aghs=(); paths=(); nbs=(); nbvalids=()
 while IFS= read -r story; do
   base="$(basename "$story" .md)"; id="${base%%-*}"
   title="$(first_line "$story" title)"
@@ -145,6 +155,28 @@ while IFS= read -r story; do
     true|yes|1) urgent=1 ;;
     *) urgent=0 ;;
   esac
+  # `not-before:` is a PO input read from the story only, like `urge:` above --
+  # not the plan, which is the Architect's reach. Empty means no gate. A value
+  # is valid iff it is exactly YYYY-MM-DD with month 01-12 and day 01-31 (a
+  # day beyond the real calendar, e.g. 2026-02-30, is accepted and simply
+  # holds until the next valid date lexicographically greater than it --
+  # 10# strips bash 3.2's octal reading of a leading zero). Anything else
+  # ("november", "2026-11-1", "2026-13-40", a bare "not-before:") is invalid.
+  nb="$(first_line "$story" not-before)"
+  nb_valid=1
+  if [ -n "$nb" ]; then
+    if [[ "$nb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      nb_mm="${nb:5:2}"; nb_dd="${nb:8:2}"
+      if [ "$((10#$nb_mm))" -ge 1 ] && [ "$((10#$nb_mm))" -le 12 ] \
+         && [ "$((10#$nb_dd))" -ge 1 ] && [ "$((10#$nb_dd))" -le 31 ]; then
+        nb_valid=1
+      else
+        nb_valid=0
+      fi
+    else
+      nb_valid=0
+    fi
+  fi
   plan="$(git ls-tree -r --name-only "$MAIN" -- .team/plans/ | grep "/${id}-" | head -1)"
   note="$(git ls-tree -r --name-only "$MAIN" -- .team/notes/ | grep "/${id}-" | head -1)"
   branch="$(git branch -r --list "origin/feat/${id}-*" | head -1 | sed 's|^ *origin/||')"
@@ -246,7 +278,7 @@ while IFS= read -r story; do
         status=needs-fix; next=coder; where="main CI red — fix $id" ;;
     esac
   fi
-  ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where"); urgs+=("$urgent"); aghs+=("$age_v"); paths+=("$story")
+  ids+=("$id"); titles+=("$title"); sts+=("$status"); nxs+=("$next"); whs+=("$where"); urgs+=("$urgent"); aghs+=("$age_v"); paths+=("$story"); nbs+=("$nb"); nbvalids+=("$nb_valid")
 
   # depends-on from story and plan frontmatter, unioned. One line, comma-separated;
   # tokens are kept only if they are exactly three digits; unknown IDs are filtered
@@ -292,6 +324,8 @@ for i in $(seq 0 $((n - 1))); do
     fst[$i]=dep-missing; fnx[$i]=po; fwh[$i]="missing: ${miss[$i]}"; err[$i]=1
   elif [ "${cys[$i]}" -eq 1 ]; then
     fst[$i]=dep-cycle; fnx[$i]=po; fwh[$i]="cycle with: ${deps[$i]}"; err[$i]=1
+  elif [ -n "${nbs[$i]}" ] && [ "${nbvalids[$i]}" -eq 0 ]; then
+    fst[$i]=date-invalid; fnx[$i]=po; fwh[$i]="not-before: ${nbs[$i]}"; err[$i]=1
   fi
 done
 
@@ -317,6 +351,22 @@ while [ "$changed" -eq 1 ] && [ "$rounds" -le "$n" ]; do
       fi
     done
   done
+done
+
+# `held`: a not-before date still in the future, checked after blocked (a
+# declared dependency is something a person might act on; the date resolves
+# itself with no one intervening) and before the blocked-label settling below,
+# so a dependent's "blocked by: 028(held)" reads the final status. Terminal
+# rows never held -- `st_override` above already folded done/closed/cancelled
+# into `sts[$i]` before this story's arrays were pushed.
+today="$(date +%F)"
+for i in $(seq 0 $((n - 1))); do
+  [ "${err[$i]}" -eq 1 ] && continue
+  [ "${blk[$i]}" -eq 1 ] && continue
+  case "${sts[$i]}" in done|closed|cancelled) continue ;; esac
+  if [ -n "${nbs[$i]}" ] && [ "${nbvalids[$i]}" -eq 1 ] && [[ "${nbs[$i]}" > "$today" ]]; then
+    fst[$i]=held; fnx[$i]=—; fwh[$i]="until ${nbs[$i]} (${sts[$i]})"
+  fi
 done
 
 # Label settling for blocked rows. Run the where-building twice so nested labels
