@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Reviewer fallback — claude --model haiku (the primary reviewer is sonnet); used by
-# the watchdog when a spend limit blocks the primary. Note the whole team now
-# draws on one Claude account, so a limit is often account-wide rather than
-# per-model — this buys headroom where sonnet is capped tighter, not immunity.
+# Reviewer fallback — sonnet, same model as the primary. In the past this ran
+# haiku; a haiku session cannot use auto mode, so a limit-downgrade silently
+# stalled the agent. A limit now only respawns the session on the same model.
 [ $# -gt 0 ] || set -- 'Begin. Follow the "On start" section of your role.'
 exec "$(dirname "$0")/_start" reviewer reviewer.md \
   env PATH="$HOME/.local/bin:$PATH" \
