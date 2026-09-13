@@ -132,13 +132,21 @@ if [ "$have_gh" -eq 1 ]; then
   # (a commit can have several runs/workflows; only its most recent matters),
   # walk back through failures, stop at the first success. "cancelled",
   # "skipped" and empty (still running/queued) neither end nor extend the
-  # streak. Whatever failure is left standing when the walk stops (a success,
-  # or the window runs out) is the oldest -- the actual start of the red run --
-  # because each later failure overwrites the previous answer as the walk
-  # moves further back in time.
+  # streak -- applied uniformly to every row, including the newest: an
+  # in-progress or cancelled newest run is not proof main is green, it is
+  # simply not yet an answer either way, and an older unresolved `failure`
+  # underneath it is still red (review, round 1 -- a special case here used
+  # to print "not red" the instant the newest row wasn't literally
+  # `"failure"`, silently hiding exactly the red streak this story exists to
+  # surface). Whatever failure is left standing when the walk stops (a
+  # success, or the window runs out) is the oldest -- the actual start of the
+  # red run -- because each later failure overwrites the previous answer as
+  # the walk moves further back in time. A genuinely green newest run falls
+  # out of this the same way: `sha` never gets set before `success` exits the
+  # walk, so the END block prints nothing and the caller below reads that as
+  # not-red.
   main_red_line="$(printf '%s\n' "$main_runs" | awk -F'\t' '
     !seen[$3]++ {
-      if (!started) { started=1; if ($1 != "failure") { print "GREEN"; exit } }
       if ($1 == "failure") { sha=$3; title=$2; job=$4 }
       else if ($1 == "success") { exit }
     }

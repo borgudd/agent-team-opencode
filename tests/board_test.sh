@@ -319,6 +319,7 @@ add_story 070 red-story "Fixture: red run sits directly on the story's own merge
 add_story 071 green-story "Fixture: red run sits on bookkeeping after a green story merge"
 add_story 072 red-story-then-plan "Fixture: red run on a plan-doc commit, red story merge further back"
 add_story 073 cancelled-streak "Fixture: a cancelled run mid-streak does not break it"
+add_story 074 not-yet-completed-newest "Fixture: newest run in-progress, an older run still unresolved-red"
 git add .team
 git commit -q -m "story 051 fixture stories + plans"
 git push -q origin main
@@ -329,6 +330,7 @@ feat/070-red-story	701	MERGED	1
 feat/071-green-story	711	MERGED	1
 feat/072-red-story-then-plan	721	MERGED	1
 feat/073-cancelled-streak	731	MERGED	1
+feat/074-not-yet-completed-newest	741	MERGED	1
 EOF
 export GH_SHIM_PRS="$PRS2_FILE" GH_SHIM_RUNS=""
 
@@ -433,8 +435,23 @@ if [ -n "$(main_row_where "$scenario_tsv")" ]; then
   echo "FAIL: scenario E: an id=main row exists but a story (073) was blamed"; fail=1
 fi
 
+# F (review round 1): the newest run has not completed yet (empty
+# conclusion -- still queued or in progress) and an older run in the same
+# streak is a genuine, still-unresolved failure. An in-progress newest run is
+# not proof main is green; it must not mask a real red streak underneath it.
+run_scenario_f="$WORK/main_runs_f.tsv"
+printf '\tin progress run\tshaF1\tAPI tests\nfailure\tfeat(074): thing (#741)\tshaF2\tAPI tests\nsuccess\tbaseline\tshaF3\tAPI tests\n' > "$run_scenario_f"
+run_scenario "$run_scenario_f"
+got="$(status_of "$scenario_tsv" 074)"
+if [ "$got" != needs-fix ]; then
+  echo "FAIL: scenario F: story 074 status=$got, want needs-fix (an in-progress newest run must not hide an older unresolved failure)"; fail=1
+fi
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario F: an id=main row exists but a story (074) was blamed"; fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "ok — board_test.sh: 5/5 story-051 red-main-attribution scenarios (A-E: direct story blame, bookkeeping-with-no-PR gets a main row, first-red-not-latest, green-newest-means-nothing-red, cancelled-mid-streak doesn't break it)"
+  echo "ok — board_test.sh: 6/6 story-051 red-main-attribution scenarios (A-F: direct story blame, bookkeeping-with-no-PR gets a main row, first-red-not-latest, green-newest-means-nothing-red, cancelled-mid-streak doesn't break it, in-progress-newest doesn't hide an older red)"
 else
   echo "--- story-051 fixtures failed; full status --tsv for debugging ---"
   printf '%s\n' "$scenario_tsv"
