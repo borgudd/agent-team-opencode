@@ -1,0 +1,143 @@
+#!/bin/bash
+# board-mirror — sync the agent board to GitHub Projects ("Local Assistant -
+# Agent Board"). Every open issue in the app repo is a card; numbered story
+# issues get their real board State from bin/status, all other open issues
+# default to "planned". Idempotent and convergent: adds missing cards, fixes
+# State diffs, prunes cards whose issue was closed, and dedupes strays.
+#
+# Project-v2 has NO REST API (GraphQL only), so all project ops use raw
+# GraphQL via `gh api graphql` (keeps token auth). REST is only used for the
+# cheap issue/node_id listing.
+#
+# Usage: board-mirror [--workdir /path/to/local-assistant] [--dry-run]
+# Env overrides: LA_OWNER, LA_REPO, LA_PROJECT_ID
+# bash-3.2 safe (mini ships macOS /bin/bash 3.2).
+
+DEFAULT_OWNER="borgudd"
+DEFAULT_REPO="borgudd/local-assistant"
+DEFAULT_PROJECT_ID="PVT_kwHOCSNWps4BjY7c"
+
+LA_OWNER="${LA_OWNER:-$DEFAULT_OWNER}"
+LA_REPO="${LA_REPO:-$DEFAULT_REPO}"
+LA_PROJECT_ID="${LA_PROJECT_ID:-$DEFAULT_PROJECT_ID}"
+WORKDIR="${PWD}"
+DRYRUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --workdir) WORKDIR="$2"; shift 2 ;;
+    --dry-run) DRYRUN=1; shift ;;
+    *) echo "board-mirror: unknown arg: $1 (usage: [--workdir DIR] [--dry-run])" >&2; exit 2 ;;
+  esac
+done
+
+command -v gh  >/dev/null || { echo "board-mirror: gh not found"  >&2; exit 1; }
+command -v jq  >/dev/null || { echo "board-mirror: jq not found"  >&2; exit 1; }
+
+SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
+STATUS_BIN="$SKILL_DIR/status"
+
+T=/tmp/bm.$$
+REQ="$T.query.json"
+trap 'rm -f "$T".* 2>/dev/null' EXIT
+
+say() { printf '%s\n' "$*"; }
+lk()  { awk -F '\t' -v k="$1" -v f="$2" -v file="$3" 'BEGIN{out=""} $1==k{out=$f; exit} END{printf "%s", out}' "$3"; }
+
+gql() { # gql <query-string> <variables-json> <jqfilter> -> one GraphQL call, stdout result
+  printf '{"query":%s,"variables":%s}\n' "$1" "$2" > "$REQ"
+  gh api graphql --input "$REQ" 2>/dev/null | jq -r "$3"
+}
+
+# ---- preflight: abort early if GraphQL is in a cooldown ----
+probe="$(gh api graphql -f query='query($id: ID!){ node(id:$id){ ... on ProjectV2 { title } } }' -F id="$LA_PROJECT_ID" 2>/dev/null)"
+echo "$probe" | grep -q '"errors"' && {
+  echo "board-mirror: GraphQL cooldown: $(printf '%s' "$probe" | jq -r '.errors[0].message // "unknown error"')" >&2
+  exit 3
+}
+
+# ---- 1. open issues via REST: number, story-prefix, node_id ----
+gh api --paginate "repos/$LA_REPO/issues?state=open&per_page=100" 2>/dev/null > "$T.issues.json"
+: > "$T.stories.tsv"
+jq -s 'add' "$T.issues.json" | jq -r '
+  .[] | .number as $n
+     | (.title | (capture("^(?<s>[0-9]{2,3}) · ") // {s:""}) | .s) as $s
+     | "\($n)\t\($s)\t\(.node_id)"' >> "$T.stories.tsv"
+
+# ---- 2. ONE GraphQL read: State field/options + items with their State ----
+printf '{"query":%s,"variables":%s}\n' 'query($id: ID!){ node(id:$id){ ... on ProjectV2 { fields(first:50){ nodes{ ... on ProjectV2SingleSelectField{ id name options{ id name } } } } items(first:100){ totalCount nodes{ id content{ ... on Issue { number } } fieldValues(first:40){ nodes{ ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{ name } } } } } } } } } }' "{\"id\":\"$LA_PROJECT_ID\"}" > "$REQ"
+READ="$(gh api graphql --input "$REQ" 2>/dev/null)"
+printf '%s' "$READ" | jq -r '.data.node.fields.nodes[] | select(.name=="State") | "FID\t\(.id)", (.options[] | "OPT\t\(.name)\t\(.id)")' > "$T.board.tsv"
+STATE_FIELD_ID="$(awk -F '\t' '$1=="FID"{print $2}' "$T.board.tsv")"
+awk -F '\t' '$1=="OPT"{print $2"\t"$3}' "$T.board.tsv" > "$T.opts.tsv"
+printf '%s' "$READ" | jq -r '.data.node.items.nodes[] | (.content.number // "") as $n | ( [.fieldValues[]? | select((.field?.name) == "State")][0].name // "" ) as $s | "\($n)\t\(.id)\t\($s)"' > "$T.items.tsv"
+
+# ---- 3. active board states from bin/status ----
+( cd "$WORKDIR" && "$STATUS_BIN" ) 2>/dev/null | grep -E '^[0-9]{2,3} ' |
+  while read -r line; do
+    [[ $line =~ ^([0-9]{2,3})[[:space:]]+(urgent[[:space:]]+)?([a-z][a-z-]+)[[:space:]]{2,} ]] || continue
+    st="${BASH_REMATCH[3]}"
+    case "$st" in done|closed|'' ) continue ;; esac
+    printf '%s\t%s\n' "${BASH_REMATCH[1]}" "$st"
+  done > "$T.states.tsv"
+
+awk -F '\t' '!seen[$1]++' "$T.items.tsv" > "$T.items1.tsv"
+
+added=0; updated=0; unchanged=0; removed=0; extras=0
+
+# ---- 4. dedupe strays (beyond the first card per issue) ----
+awk -F '\t' 'seen[$1]++' "$T.items.tsv" | while IFS=$'\t' read -r n iid st; do
+  say "del-dup #$n $iid"
+  if [ "$DRYRUN" -eq 0 ]; then
+    gql 'mutation($p: ID!, $i: ID!){ deleteProjectV2Item(input:{projectId:$p, itemId:$i}){ deletedItemId } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\"}" '.data.deleteProjectV2Item.deletedItemId' >/dev/null
+    sleep 1
+  fi
+  extras=$((extras+1))
+done
+
+# ---- 5. reconcile: add missing, fix state diffs ----
+while IFS=$'\t' read -r n story nid; do
+  [ -z "$n" ] && continue
+  target="$(lk "$story" 2 "$T.states.tsv")"; [ -z "$target" ] && target=planned
+  oid="$(lk "$target" 2 "$T.opts.tsv")"
+  iid="$(lk "$n" 2 "$T.items1.tsv")"
+  cur="$(lk "$n" 3 "$T.items1.tsv")"
+  if [ -z "$iid" ]; then
+    say "add    #$n -> $target"
+    if [ "$DRYRUN" -eq 0 ]; then
+      iid="$(gql 'mutation($p: ID!, $c: ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"c\":\"$nid\"}" '.data.addProjectV2ItemById.item.id')"
+      if [ -n "$iid" ] && [ "$iid" != null ] && [ "$target" != planned ]; then
+        gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: ID!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
+        sleep 1
+      fi
+    fi
+    added=$((added+1))
+  elif [ "$cur" != "$target" ]; then
+    say "update #$n [${cur:-empty} -> $target]"
+    if [ "$DRYRUN" -eq 0 ] && [ -n "$oid" ]; then
+      gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: ID!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
+      sleep 1
+    fi
+    updated=$((updated+1))
+  else
+    unchanged=$((unchanged+1))
+  fi
+done < "$T.stories.tsv"
+
+# ---- 6. prune cards whose issue is no longer open ----
+awk -F '\t' '!seen[$1]++' "$T.items.tsv" | while IFS=$'\t' read -r n iid st; do
+  inopen="$(lk "$n" 1 "$T.stories.tsv")"
+  if [ -z "$inopen" ]; then
+    say "remove #$n (issue closed)"
+    if [ "$DRYRUN" -eq 0 ]; then
+      gql 'mutation($p: ID!, $i: ID!){ deleteProjectV2Item(input:{projectId:$p, itemId:$i}){ deletedItemId } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\"}" '.data.deleteProjectV2Item.deletedItemId' >/dev/null
+      sleep 1
+    fi
+    removed=$((removed+1))
+  fi
+done
+
+if [ "$DRYRUN" -eq 1 ]; then
+  say "dry-run: add +$added  upd ~$updated  keep =$unchanged  del -$removed  dupes -$extras"
+else
+  say "done: add +$added  upd ~$updated  keep =$unchanged  del -$removed  dupes -$extras"
+fi
