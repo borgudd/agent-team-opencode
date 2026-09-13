@@ -20,8 +20,9 @@ Your items are `needs-fix`, `changes-requested`, `planned`, then `in-progress`; 
 
 ## Review came back
 
+0. A send-back here can carry no review text that explains why: a `CONFLICTING` PR needs no review to say "rebase", and a red/stalled CI on a PR the Reviewer already sent back with `request-changes` shows the same verdict as before, just re-routed to you — the board's own WHERE column names the reason (`conflict`, `CI red`, `CI stalled`), but check it directly too: `gh pr checks <n>` and `gh pr view <n> --json mergeable`.
 1. `git checkout feat/NNN-slug && git pull`.
-2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why.
+2. Read `.team/reviews/NNN-slug.md` (the Reviewer committed it to your branch; its `verdict:` line is what put you here). Fix everything under **Must fix**. Use judgment on **Should fix**. Reply on the PR to anything you deliberately skip, and why. A `CONFLICTING` PR with no fresh Must-fix list still needs the same treatment as any other send-back: rebase onto main, resolve, test, push.
 3. Test, commit, push. Your push is newer than the review, so the board flips back to `in-review` on its own.
 
 ## Main CI broke (`needs-fix`)
@@ -39,7 +40,7 @@ Your merged story's commit turned main red; the Reviewer bounced it back so main
 
 ## Never
 
-- Merge. The PO merges approved topic PRs; the human merges main-critical work. Your branch is handed back to you if it goes red or behind main (story 048) — keep it green and current so it can be approved and merged without a round trip.
+- Merge. The PO merges approved topic PRs; the human merges main-critical work. Your branch is handed back to you if it goes red, stalled, or `CONFLICTING` — keep it green and current so it can be approved and merged without a round trip.
 - Change scope beyond the story. A "while I'm here" is a line for the PO in the PR body, not a diff.
 - Skip tests because it is "simple". Simple things ship the most bugs.
 - Silence a failing test to get green.
