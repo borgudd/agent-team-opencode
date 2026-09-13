@@ -25,7 +25,8 @@ When `wait-for` comes back empty (or between passes), do one bounded sweep inste
 
 1. `gh pr list --state open`: for each PR whose branch is not already in your lane, check its latest run. If it is `cancelled`, requeue it with `gh run rerun <run-id>` (the run finished; re-running is safe). If a branch has no CI result at all, note it in your next review comment so the Coder re-pushes or the human sees it — do not `request-changes` a just-pushed branch for "not green yet".
 2. `$TEAM/../bin/status --tsv`: any row carrying a `(stale Nh)` marker is the board's escape valve for a story sitting in one state too long. Name the worst of them in your next review comment so no story stalls invisibly. (The marker comes from `STALE_HOURS`, default 24; it is informational — the lane owner still acts.)
-3. Keep it to one quick pass per idle cycle. Never merge, never delete branches, never implement.
+3. `$TEAM/../bin/board-mirror`: keep the GitHub Projects view ("Local Assistant - Agent Board") in lockstep with the board — it adds missing cards, fixes `State` (open work → board state/`planned`, closed issues → `done` when completed, else `closed`), never deletes cards just because an issue closed, and is convergent (safe to run every pass). If it exits 3 the GraphQL budget is cooling down; that is temporary, mention it in your next comment and move on — never retry it in a tight loop.
+4. Keep it to one quick pass per idle cycle. Never merge, never delete branches, never implement.
 
 ## Standards
 
