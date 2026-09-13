@@ -90,9 +90,11 @@ if [ "$have_gh" -eq 1 ]; then
     # An open PR branch the runs list has never seen is stalled — the reviewer
     # sweep requeues or re-triggers it. Brand-new branches appear in the runs
     # list the moment a workflow starts (queued), so this does not false-fire.
-    stale_prs="$(printf '%s\n' "$prs" | awk -F'\t' '$3=="OPEN" && $1!="" {print $1}' \
-      | while read -r b; do case " $runs_branches " in *" $b "*) ;; *) printf '%s\n' "$b" ;; esac; done | sort -u | tr '\n' ' ')"
-  fi"
+    # Plain loop, not a case-inside-$( ) pipeline: bash 3.2 misparses that.
+    for b in $(printf '%s\n' "$prs" | awk -F'\t' '$3=="OPEN" && $1!="" {print $1}'); do
+      case " $runs_branches " in *" $b "*) ;; *) stale_prs="$stale_prs $b" ;; esac
+    done
+  fi
   latest_main="$(gh run list --branch "${MAIN#origin/}" --limit 1 --json conclusion,displayTitle \
             --jq '.[0].conclusion, .[0].displayTitle' 2>/dev/null)"
   mc="$(printf "%s" "$latest_main" | sed -n 1p)"
