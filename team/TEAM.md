@@ -48,7 +48,8 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | the PR is `CONFLICTING` against main | `changes-requested` — Coder's turn, whatever the review says (wins over everything below; a conflicting PR cannot be merged and needs no review to say "rebase") |
 | the PR branch's latest PR CI run failed, errored, timed out, was cancelled, or never ran, **and** the current review already says `request-changes` | `changes-requested` — Coder's turn (WHERE names the reason, `CI red`/`CI stalled` — no second trip through the Reviewer to hear "still red") |
 | the PR branch's latest PR CI run failed, errored, timed out, was cancelled, or never ran, otherwise (`approved`, `in-review`, no review, or a stale review) | `ci-fails` — Reviewer's turn (requeue or hand back) |
-| the latest main run failed and its commit names story NNN | `needs-fix` — Coder repairs Red main |
+| main CI is red, attributed to the story whose PR merged the FIRST red run in the current streak (not whatever commit the latest run happens to sit on) | `needs-fix` — Coder repairs Red main |
+| main CI is red but the first red run's commit merged no story PR at all (a bookkeeping commit, a direct push, a CI-only PR) | a standalone `main` row, status `main-red`, naming the commit and job — nobody's turn |
 | a declared dependency (story or plan `depends-on:`) is not `done` yet | `blocked` — nobody (wait; unblocks itself) |
 | `not-before:` on the story is a date still in the future | `held` — nobody (wait; unblocks itself on the date) |
 | `depends-on:` names a story that does not exist | `dep-missing` — PO fixes the declaration |

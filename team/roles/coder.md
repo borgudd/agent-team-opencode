@@ -27,7 +27,7 @@ Your items are `needs-fix`, `changes-requested`, `planned`, then `in-progress`; 
 
 ## Main CI broke (`needs-fix`)
 
-Your merged story's commit turned main red; the Reviewer bounced it back so main becomes deployable again.
+Your merged story's commit turned main red; the board attributes this to the FIRST red run in the current streak, not the latest, so `gh run list --branch main` may well show a later, redder-looking run sitting on someone else's bookkeeping commit — read the run the board actually blamed you for, not just the newest one.
 
 1. `git checkout main && git pull`. Branch `feat/NNN-fix-*` (or reuse the live `feat/NNN-*` branch if it still exists) and push it immediately.
 2. Read the failed run: `gh run list --branch main --limit 3`, then `gh run view <id> --log-failed` to see the step and the file that broke. A source-budget failure names the oversized file and its allowance; a test failure names the failing test. Fix exactly that.
