@@ -37,6 +37,7 @@ class_rank() {
     po:approved) echo 0 ;;
     po:dep-missing) echo 0 ;;
     po:dep-cycle) echo 0 ;;
+    po:date-invalid) echo 0 ;;
     po:needs-split) echo 1 ;;
     *) echo 9 ;;
   esac
