@@ -36,6 +36,7 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 
 | If | then the story is |
 |---|---|
+| (story 067) the story's PR (by branch `feat/NNN-*`, newest PR number if more than one matches) is `MERGED` | `done` — checked first, before plan/note/branch timestamps, and before a mirror-written `status: closed` from `bin/story pull` (which cannot move a done story back to closed); only a human's `status: cancelled`, and a real `needs-fix` (red main), outrank it |
 | story exists, no plan | `ready` — Architect's turn |
 | plan has `verdict: needs-split` | `needs-split` — PO's turn |
 | plan exists, no `feat/NNN-*` branch | `planned` — Coder's turn |

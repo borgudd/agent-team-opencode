@@ -125,8 +125,13 @@ PUSH() {
 }
 
 PULL() {
-  local n ititle state0 id title n2 cur W_TITLE note last
+  local n ititle state0 id title n2 cur W_TITLE note last c_at marker bstatus
   local changed=0
+  # Story 067: the board (a merged PR) knows a story is done in a way the
+  # GitHub mirror cannot see -- an issue the mirror closes for other reasons
+  # (a bulk close, a stale automation) must not un-finish it. Fetched once,
+  # like PUSH already does, not once per issue.
+  local board_tsv="$( { "$HERE/status" --tsv 2>/dev/null || true; } | cut -f1,2 )"
   local tsv_f="$(mktemp)"
   gh issue list --repo "$REPO" --label story --state all --limit 500 \
     --json number,title,state --jq '.[] | [.number,.title,.state] | @tsv' > "$tsv_f" 2>/dev/null \
@@ -148,25 +153,41 @@ PULL() {
       changed=1
     fi
     cur="$(fm "$path" status)"
-    if [ "$state0" = "CLOSED" ] && [ "$cur" != "closed" ] && [ "$cur" != "cancelled" ]; then
-      fm_write "$path" status closed "GH closed #$n -> $id marked closed"
-      changed=1
+    bstatus="$(printf '%s\n' "$board_tsv" | awk -v id="$id" -F'\t' '$1==id {print $2; exit}')"
+    if [ "$state0" = "CLOSED" ]; then
+      if [ "$bstatus" = "done" ]; then
+        say "pull: #$n is closed on GitHub because $id is done — left alone"
+      elif [ "$cur" != "closed" ] && [ "$cur" != "cancelled" ]; then
+        fm_write "$path" status closed "GH closed #$n -> $id marked closed"
+        changed=1
+      fi
     elif [ "$state0" = "OPEN" ] && { [ "$cur" = "closed" ] || [ "$cur" = "cancelled" ]; }; then
       fm_write "$path" status "" "GH reopened #$n -> $id status cleared"
       changed=1
     fi
     note=".team/notes/$(basename "$path" .md).md"
-    last="$(gh issue view "$n" --repo "$REPO" --json comments --jq '.comments[-1] | "\(.createdAt) \(.body)"' 2>/dev/null)"
-    if [ -n "$last" ] && ! content "$note" 2>/dev/null | grep -qF "gh:$n"; then
-      if [ "$DRY" -eq 1 ]; then
-        action "append comment to $note"
-      else
-        mkdir -p "$(dirname "$note")"
-        printf '\n## GitHub comment (#%s)\n%s\n' "$n" "$last" >> "$note"
-        git add "$note"
-        say "  comment from #$n appended to $note"
+    # A comment with no body (a reaction-only event, a bot noop) or no known
+    # author must produce nothing -- the "null null" notes of 2026-09-14.
+    last="$(gh issue view "$n" --repo "$REPO" --json comments \
+      --jq '.comments[-1] | select(.body != null and (.body|length) > 0 and .author.login != null) | "\(.createdAt) \(.author.login) \(.body)"' 2>/dev/null)"
+    if [ -n "$last" ]; then
+      c_at="${last%% *}"
+      marker="gh:$n $c_at"
+      # The dedup marker must actually appear in what gets appended below --
+      # it used to look for "gh:$n" while the appended text only ever said
+      # "(#$n)", so it never matched and every pull re-appended the same
+      # comment.
+      if ! content "$note" 2>/dev/null | grep -qF "$marker"; then
+        if [ "$DRY" -eq 1 ]; then
+          action "append comment to $note"
+        else
+          mkdir -p "$(dirname "$note")"
+          printf '\n## GitHub comment (#%s) [%s]\n%s\n' "$n" "$marker" "$last" >> "$note"
+          git add "$note"
+          say "  comment from #$n appended to $note"
+        fi
+        changed=1
       fi
-      changed=1
     fi
   done < "$tsv_f"
   rm -f "$tsv_f"

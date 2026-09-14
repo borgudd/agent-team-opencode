@@ -30,6 +30,11 @@
 # The verdict is the `verdict:` line of .team/reviews/NNN-*.md on the PR branch — git, not
 # GitHub's review decision (which GitHub refuses when one account authored the PR and reviews it).
 #   done / closed      PR merged / closed                         → —
+#                      (story 067) a merged PR is `done` before plan/note/branch
+#                      timestamps are even asked, and a mirror-written
+#                      `status: closed` from `bin/story pull` cannot move it
+#                      back to `closed` -- only a human's `cancelled`, and a
+#                      real `needs-fix` (red main), outrank `done`.
 #   blocked            a declared dependency is not `done` yet    → nobody (wait)
 #   held               `not-before:` date on the story is still in the future → nobody (wait)
 #   dep-missing        `depends-on:` names a story that does not exist → po
@@ -258,7 +263,31 @@ while IFS= read -r story; do
   branch="$(git branch -r --list "origin/feat/${id}-*" | head -1 | sed 's|^ *origin/||')"
   status=""; next=""; where=""; age_v=""
 
-  if [ -z "$plan" ]; then
+  # Story 067: a merged PR is `done` before anything else is asked -- plan/note/
+  # branch timestamps, and a mirror-written `status: closed`, must not be able to
+  # move a finished story backwards. Looked up by branch-prefix `^feat/NNN-`
+  # (same pattern the deleted-branch fallback below already used), so it works
+  # whether or not a local/remote branch still exists. Two PRs can match (a
+  # `feat/NNN-fix-*` opened after a needs-fix) -- the newest by PR number is the
+  # one whose merge state counts, so sort descending before taking the first.
+  # have_gh=0 leaves early_status empty and the chain below runs exactly as
+  # before (status=unknown), never defaulting to done.
+  early_status=""; early_num=""
+  if [ "$have_gh" -eq 1 ]; then
+    early_match="$(printf '%s\n' "$prs" | awk -F'\t' -v id="$id" '$1 ~ "^feat/" id "-" {print $2"\t"$3}' \
+                   | sort -t $'\t' -k1,1nr | head -1)"
+    if [ -n "$early_match" ]; then
+      IFS=$'\t' read -r early_num early_state <<< "$early_match"
+      case "$early_state" in
+        MERGED) early_status=done ;;
+        CLOSED) early_status=closed ;;
+      esac
+    fi
+  fi
+
+  if [ -n "$early_status" ]; then
+    status="$early_status"; next="—"; where="#$early_num"
+  elif [ -z "$plan" ]; then
     status=ready; next=architect
   elif [ "$(first_line "$plan" verdict)" = "needs-split" ]; then
     status=needs-split; next=po
@@ -383,9 +412,14 @@ while IFS= read -r story; do
   # GitHub mirror override: bin/story pull marks a story closed/cancelled when
   # a human closes (or cancels) its issue on GitHub — git+PR state cannot see
   # that, so the board honors a terminal front-matter status when present.
+  # Story 067: `done` (this story's PR merged) is current fact a mirror sync
+  # cannot un-happen, so a mirror-written `status: closed` no longer beats it —
+  # only `cancelled` (never written by the sync; a human's word) still does.
   st_override="$(first_line "$story" status)"
   case "$st_override" in
-    done|closed|cancelled) status="$st_override"; next="—"; where="gh" ;;
+    cancelled) status="$st_override"; next="—"; where="gh" ;;
+    done) status="$st_override"; next="—"; where="gh" ;;
+    closed) [ "$status" = done ] || { status="$st_override"; next="—"; where="gh"; } ;;
   esac
   # Main CI red from this story's merge: the Coder repairs it, winning over `done`
   # (a real red main is current fact); closed/cancelled is the human saying stop.
