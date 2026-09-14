@@ -8,9 +8,9 @@
 #   in-progress        remote branch exists, no PR                → coder
 #   unknown            branch exists but GitHub could not be asked → nobody (look, don't work)
 #   in-review          PR open, no review yet or new commits since → reviewer
-#   changes-requested  review file on the branch says so, OR the PR is
-#                      CONFLICTING against main (wins over everything else,
-#                      whatever the review says)                      → coder
+#   changes-requested  review file on the branch says so (by ancestry, not
+#                      date), OR the PR is CONFLICTING against main (wins
+#                      over everything else, whatever the review says) → coder
 #   ci-fails           PR branch's latest run failed, errored, timed out,
 #                      was cancelled, or never ran -- unless the current
 #                      review already says request-changes, in which case
@@ -308,13 +308,33 @@ while IFS= read -r story; do
         *)
           # The verdict lives in .team/reviews/NNN-*.md on the PR branch (frontmatter `verdict:`).
           # It counts only if the review commit is at least as new as the last non-review commit;
-          # a Coder push after the review puts the story back in the Reviewer's lane.
+          # a Coder push after the review puts the story back in the Reviewer's lane. "New" is
+          # decided by commit ancestry, not committer date (story 060): a rebase rewrites every
+          # commit's committer date to the moment of the rebase, so a review commit and a Coder's
+          # fix that followed it can land in the same epoch second -- a plain date comparison then
+          # ties in the review's favour and the board keeps saying the review is the latest word,
+          # even though the fix is objectively a descendant of it. Timestamps (review_ts/work_ts)
+          # are kept only as the fallback for unrelated histories, where ancestry can't decide.
           review="$(git ls-tree -r --name-only "origin/$branch" -- .team/reviews/ 2>/dev/null | grep "/${id}-" | head -1)"
           if [ -n "$review" ]; then
             verdict="$(git show "origin/$branch:$review" 2>/dev/null | sed -n 's/^verdict: *//p' | head -1)"
+            review_sha="$(git log -1 --format=%H "origin/$branch" -- "$review" 2>/dev/null)"
+            work_sha="$(git log -1 --format=%H "origin/$branch" -- . ':(exclude).team/reviews' 2>/dev/null)"
             review_ts="$(git log -1 --format=%ct "origin/$branch" -- "$review" 2>/dev/null || echo 0)"
             work_ts="$(git log -1 --format=%ct "origin/$branch" -- . ':(exclude).team/reviews' 2>/dev/null || echo 0)"
-            if [ "${review_ts:-0}" -ge "${work_ts:-0}" ]; then
+            review_current=1
+            if [ -n "$review_sha" ] && [ -n "$work_sha" ] && [ "$review_sha" != "$work_sha" ]; then
+              if git merge-base --is-ancestor "$review_sha" "$work_sha" 2>/dev/null; then
+                review_current=0
+              elif git merge-base --is-ancestor "$work_sha" "$review_sha" 2>/dev/null; then
+                review_current=1
+              elif [ "${review_ts:-0}" -ge "${work_ts:-0}" ]; then
+                review_current=1
+              else
+                review_current=0
+              fi
+            fi
+            if [ "$review_current" -eq 1 ]; then
               case "$verdict" in
                 approve*)  status=approved; next=po ;;  # PO merges the green, current, approved story PRs
                 request*|changes*) status=changes-requested; next=coder ;;

@@ -457,4 +457,120 @@ else
   printf '%s\n' "$scenario_tsv"
 fi
 
+# --- Story 060: newer-of-review-vs-work decided by commit ancestry, not
+# committer date -- a rebase rewrites every commit's committer date to the
+# moment of the rebase, so a review commit and the Coder's later fix can land
+# in the same epoch second. A plain `>=` timestamp tie then reads the review
+# as still current even though the fix is its descendant. Four branches, all
+# green CI (mergeable, no conflict, a "success" run) so the story-050 rules
+# stay out of the way and only the ancestry decision is under test.
+
+add_story 080 fix-after-review "Fixture: a Coder fix committed after the review"
+add_story 081 review-after-fix "Fixture: a review committed after the Coder's fix"
+add_story 082 rebase-same-second "Fixture: review and fix share a committer second (rebase)"
+add_story 083 unrelated-history "Fixture: a review on unrelated history, timestamp fallback"
+git add .team
+git commit -q -m "story 060 fixture stories + plans"
+git push -q origin main
+
+# 080: work, then a request-changes review on top (the review is the latest
+# word) -> changes-requested/coder, same shape the existing 060 fixture above
+# already covers -- kept here too so the four story-060 cases read together.
+git checkout -q main
+mk_branch 080 fix-after-review
+add_work 080 fix-after-review "080 work" "$T0"
+add_review 080 fix-after-review request-changes "$((T0 + 100))"
+git push -q origin feat/080-fix-after-review
+
+# 081: a request-changes review, then a Coder fix on top (ordinary, distinct
+# timestamps) -> in-review/reviewer: the fix is a descendant of the review.
+git checkout -q main
+mk_branch 081 review-after-fix
+add_review 081 review-after-fix request-changes "$T0"
+add_work 081 review-after-fix "081 fix" "$((T0 + 100))"
+git push -q origin feat/081-review-after-fix
+
+# 082: the rebase case this story exists for -- review then fix, but BOTH
+# commits carry the exact same committer second (what `git rebase` does to
+# every commit it replays). Timestamps alone cannot break the tie; ancestry
+# still can, since the fix commit still has the review commit as a parent.
+git checkout -q main
+mk_branch 082 rebase-same-second
+add_review 082 rebase-same-second request-changes "$T0"
+add_work 082 rebase-same-second "082 fix" "$T0"
+git push -q origin feat/082-rebase-same-second
+
+# 083: a review committed on an unrelated history (no common ancestor with
+# the work commit) and merged in with `--allow-unrelated-histories`, at a
+# LATER timestamp than the work commit -- ancestry cannot decide either
+# direction, so this falls back to the old timestamp comparison, which still
+# reads the review as current -> changes-requested/coder.
+git checkout -q main
+mk_branch 083 unrelated-history
+add_work 083 unrelated-history "083 work" "$T0"
+git checkout -q --orphan orphan-083-review
+git rm -rq --cached . >/dev/null 2>&1
+mkdir -p .team/reviews
+cat > .team/reviews/083-unrelated-history.md <<EOF
+---
+id: 083
+verdict: request-changes
+---
+Fixture review on unrelated history.
+EOF
+git add .team/reviews/083-unrelated-history.md
+GIT_COMMITTER_DATE="@$((T0 + 100))" GIT_AUTHOR_DATE="@$((T0 + 100))" git commit -q -m "orphan review 083"
+git clean -q -fdx >/dev/null 2>&1
+git checkout -q feat/083-unrelated-history
+git merge -q --no-edit --allow-unrelated-histories orphan-083-review
+git push -q origin feat/083-unrelated-history
+git branch -q -D orphan-083-review
+
+git checkout -q main
+
+PRS3_FILE="$WORK/prs3.tsv"
+cat > "$PRS3_FILE" <<EOF
+feat/080-fix-after-review	801	OPEN	1
+feat/081-review-after-fix	802	OPEN	1
+feat/082-rebase-same-second	803	OPEN	1
+feat/083-unrelated-history	804	OPEN	1
+EOF
+
+RUNS3_FILE="$WORK/runs3.tsv"
+cat > "$RUNS3_FILE" <<EOF
+feat/080-fix-after-review	success	2026-01-01T00:00:00Z
+feat/081-review-after-fix	success	2026-01-01T00:00:00Z
+feat/082-rebase-same-second	success	2026-01-01T00:00:00Z
+feat/083-unrelated-history	success	2026-01-01T00:00:00Z
+EOF
+
+export GH_SHIM_PRS="$PRS3_FILE" GH_SHIM_RUNS="$RUNS3_FILE" GH_SHIM_MAIN_RUN=""
+tsv3="$("$STATUS_BIN" --tsv)"
+
+check3() {  # id expected_status expected_next
+  local id="$1" want_status="$2" want_next="$3"
+  local row got_status got_next
+  row="$(printf '%s\n' "$tsv3" | awk -F'\t' -v id="$id" '$1==id')"
+  if [ -z "$row" ]; then
+    echo "FAIL: no row for story $id"; fail=1; return
+  fi
+  got_status="$(printf '%s' "$row" | cut -f2)"
+  got_next="$(printf '%s' "$row" | cut -f4)"
+  if [ "$got_status" != "$want_status" ] || [ "$got_next" != "$want_next" ]; then
+    echo "FAIL: story $id status=$got_status/next=$got_next, want $want_status/$want_next (row: $row)"; fail=1
+  fi
+}
+
+check3 080 changes-requested coder
+check3 081 in-review reviewer
+check3 082 in-review reviewer
+check3 083 changes-requested coder
+
+if [ "$fail" -eq 0 ]; then
+  echo "ok — board_test.sh: 4/4 story-060 review-ancestry checks (review after fix -> coder; fix after review -> reviewer; fix after review at the same rebase second -> reviewer; unrelated histories -> timestamp fallback)"
+else
+  echo "--- story-060 fixtures failed; full status --tsv for debugging ---"
+  printf '%s\n' "$tsv3"
+fi
+
 exit "$fail"
