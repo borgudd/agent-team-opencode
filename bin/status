@@ -16,7 +16,13 @@
 #                      review already says request-changes, in which case
 #                      it stays changes-requested (the Coder needs no second
 #                      trip through the Reviewer to hear "still red")  → reviewer
-#   needs-fix          main CI is red and this story merged it         → coder
+#   needs-fix          main CI is red, attributed to the story whose PR merged
+#                      the FIRST red run in the current streak (not whatever
+#                      commit the latest run happens to sit on)        → coder
+#   main-red           main CI is red but the first red run's commit merged
+#                      no story PR at all (bookkeeping, a direct push, a
+#                      CI-only PR) -- a standalone row naming the commit and
+#                      job, never a 3-digit story id                   → nobody
 #   approved           review file on the branch says so               → po (merge)
 # Rows in an actionable state whose last activity is older than STALE_HOURS
 # (default 24) get a "(stale Nh)" marker on the title — the board's escape
@@ -88,11 +94,13 @@ fi
 # CI visibility for the board. Two extra gh list calls, once per poll: the set of
 # branches whose latest PR-event run went badly — failed, errored, timed out, or
 # cancelled (red or stalled PR -> ci-fails), plus branches with an open PR that
-# has no PR-event run at all (stalled -> ci-fails) — and the latest main run
-# (red main, attributed to a story by the 3-digit id in its commit message ->
-# needs-fix). Both are advisory facts about GitHub; when gh cannot be asked they
-# simply leave the existing lanes alone, matching the prs block above.
-redprs=""; redmain=""; stale_prs=""
+# has no PR-event run at all (stalled -> ci-fails) — and a window of main's own
+# runs (red main -> needs-fix on the story whose PR merged the FIRST red run in
+# the current streak; a red run on no story's commit at all -> a standalone
+# `main`/`main-red` row, story 051). Both are advisory facts about GitHub; when
+# gh cannot be asked they simply leave the existing lanes alone, matching the
+# prs block above.
+redprs=""; redmain=""; redmain_where=""; main_red=0; stale_prs=""
 if [ "$have_gh" -eq 1 ]; then
   raw_runs="$(gh run list --limit 500 --json headBranch,event,conclusion,createdAt \
             --jq '.[] | select(.event=="pull_request") | [.headBranch,.conclusion,.createdAt] | @tsv' \
@@ -110,12 +118,62 @@ if [ "$have_gh" -eq 1 ]; then
       case " $runs_branches " in *" $b "*) ;; *) stale_prs="$stale_prs $b" ;; esac
     done
   fi
-  latest_main="$(gh run list --branch "${MAIN#origin/}" --limit 1 --json conclusion,displayTitle \
-            --jq '.[0].conclusion, .[0].displayTitle' 2>/dev/null)"
-  mc="$(printf "%s" "$latest_main" | sed -n 1p)"
-  mt="$(printf "%s" "$latest_main" | sed -n 2p)"
-  if [ "$mc" = "failure" ] && [ -n "$mt" ]; then
-    redmain="$(printf "%s" "$mt" | grep -oE "[0-9]{3}" | head -1)"
+  # A window, not just the newest run: red main is attributed to the FIRST red
+  # run in the current streak, not whatever commit the latest run happens to
+  # sit on (story 051 -- a red source-budget run pinned on 048 by commit text
+  # alone, then a DiskFullError red from #551/story 040 showed as needs-fix on
+  # 050, because that's whose bookkeeping commit the latest run happened to
+  # land on). 40 runs is not exhaustive, but this is advisory board state, not
+  # an audit trail -- a streak longer than that has bigger problems.
+  main_runs="$(gh run list --branch "${MAIN#origin/}" --limit 40 \
+            --json conclusion,displayTitle,headSha,name \
+            --jq '.[] | [.conclusion, .displayTitle, .headSha, .name] | @tsv' 2>/dev/null)"
+  # One pass, newest-first (gh's own order): key on the newest run per headSha
+  # (a commit can have several runs/workflows; only its most recent matters),
+  # walk back through failures, stop at the first success. "cancelled",
+  # "skipped" and empty (still running/queued) neither end nor extend the
+  # streak -- applied uniformly to every row, including the newest: an
+  # in-progress or cancelled newest run is not proof main is green, it is
+  # simply not yet an answer either way, and an older unresolved `failure`
+  # underneath it is still red (review, round 1 -- a special case here used
+  # to print "not red" the instant the newest row wasn't literally
+  # `"failure"`, silently hiding exactly the red streak this story exists to
+  # surface). Whatever failure is left standing when the walk stops (a
+  # success, or the window runs out) is the oldest -- the actual start of the
+  # red run -- because each later failure overwrites the previous answer as
+  # the walk moves further back in time. A genuinely green newest run falls
+  # out of this the same way: `sha` never gets set before `success` exits the
+  # walk, so the END block prints nothing and the caller below reads that as
+  # not-red.
+  main_red_line="$(printf '%s\n' "$main_runs" | awk -F'\t' '
+    !seen[$3]++ {
+      if ($1 == "failure") { sha=$3; title=$2; job=$4 }
+      else if ($1 == "success") { exit }
+    }
+    END { if (sha != "") print "RED\t" sha "\t" title "\t" job }
+  ')"
+  if [ "${main_red_line%%$'\t'*}" = "RED" ]; then
+    main_red=1
+    IFS=$'\t' read -r _tag redsha redtitle redjob <<< "$main_red_line"
+    # A squash-merge title ends "... (#N)"; GitHub can truncate displayTitle
+    # for a long one, cutting that suffix off, so fall back to the commit's
+    # own (untruncated) subject line when the title alone has none.
+    prn="$(printf '%s' "$redtitle" | grep -oE '\(#[0-9]+\)' | tail -1 | tr -d '()#')"
+    if [ -z "$prn" ]; then
+      redsubject="$(git log -1 --format=%s "$redsha" 2>/dev/null)"
+      prn="$(printf '%s' "$redsubject" | grep -oE '\(#[0-9]+\)' | tail -1 | tr -d '()#')"
+    fi
+    redbranch=""
+    [ -n "$prn" ] && [ -n "$prs" ] && redbranch="$(printf '%s\n' "$prs" | awk -F'\t' -v n="$prn" '$2==n {print $1; exit}')"
+    if [ -n "$redbranch" ]; then
+      redmain="$(printf '%s' "$redbranch" | sed -n 's|^[^/]*/\([0-9][0-9][0-9]\)-.*|\1|p')"
+    fi
+    # Empty `redmain` here (no PR number in the title, no matching branch, or
+    # a branch with no NNN- story id -- a bookkeeping commit, a direct push,
+    # a CI-only PR) means nobody's story caused this: name the commit and job
+    # instead of guessing (AC2), rather than falling back to the old
+    # "first three-digit number in the text" heuristic that caused this story.
+    redmain_where="${redsha:0:7} $redjob — $redtitle"
   fi
 fi
 
@@ -145,6 +203,19 @@ in_cycle()   { # $1 = start index; true if a declared cycle passes through it (i
 }
 
 [ "$TSV" -eq 1 ] || printf '%-4s %-5s %-18s %-38s %-10s %s\n' ID URGE STATUS TITLE NEXT WHERE
+
+# Story 051, AC2: main is red but the first red run's commit merged no story
+# PR at all (a bookkeeping commit, a direct push, a CI-only PR) -- a single
+# extra row naming the commit and job, never a 3-digit id (`bin/story` looks
+# rows up by story id; this must not collide with one), never a role in NEXT
+# (`wait-for` matches `next` exactly; nobody should pick this up as work).
+if [ "$main_red" -eq 1 ] && [ -z "$redmain" ]; then
+  if [ "$TSV" -eq 1 ]; then
+    printf 'main\tmain-red\t%s\t—\t%s\t0\n' "$redmain_where" "$redmain_where"
+  else
+    printf '%-4s %-5s %-18s %-38s %-10s %s\n' main "" main-red "${redmain_where:0:38}" — "$redmain_where"
+  fi
+fi
 
 # ---- pass one: the intrinsic status of every story, exactly as before. Dependency
 # gating cannot happen inline: a row's verdict depends on the *other* rows, so every

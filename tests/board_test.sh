@@ -304,4 +304,157 @@ else
   fi
 fi
 
+# --- Story 051: red main attributed by the merged PR, not by commit-title
+# text, and to the FIRST red run in the streak -- never the latest.
+#
+# Four stories (070-073), each already "done" via the fallback_pr path (a
+# canned MERGED PR row whose branch name is never actually pushed -- exactly
+# what a real merged-and-deleted topic branch looks like to bin/status), so
+# the needs-fix override has something real to land on. Five separate
+# `main_runs` scenarios, each its own bin/status invocation (the shim answers
+# one canned file per call), because a single run list can only test one
+# streak shape at a time.
+
+add_story 070 red-story "Fixture: red run sits directly on the story's own merge"
+add_story 071 green-story "Fixture: red run sits on bookkeeping after a green story merge"
+add_story 072 red-story-then-plan "Fixture: red run on a plan-doc commit, red story merge further back"
+add_story 073 cancelled-streak "Fixture: a cancelled run mid-streak does not break it"
+add_story 074 not-yet-completed-newest "Fixture: newest run in-progress, an older run still unresolved-red"
+git add .team
+git commit -q -m "story 051 fixture stories + plans"
+git push -q origin main
+
+PRS2_FILE="$WORK/prs2.tsv"
+cat > "$PRS2_FILE" <<EOF
+feat/070-red-story	701	MERGED	1
+feat/071-green-story	711	MERGED	1
+feat/072-red-story-then-plan	721	MERGED	1
+feat/073-cancelled-streak	731	MERGED	1
+feat/074-not-yet-completed-newest	741	MERGED	1
+EOF
+export GH_SHIM_PRS="$PRS2_FILE" GH_SHIM_RUNS=""
+
+run_scenario() {  # scenario_file -> sets $scenario_tsv
+  export GH_SHIM_MAIN_RUN="$1"
+  scenario_tsv="$("$STATUS_BIN" --tsv)"
+}
+
+status_of() {  # tsv id -> prints status
+  printf '%s\n' "$1" | awk -F'\t' -v id="$2" '$1==id {print $2}'
+}
+
+main_row_where() {  # tsv -> prints WHERE of the id=main row, or nothing
+  printf '%s\n' "$1" | awk -F'\t' '$1=="main" {print $5}'
+}
+
+# A: red run directly on the story's own squash-merge commit -> that story
+# needs-fix.
+run_scenario_a="$WORK/main_runs_a.tsv"
+cat > "$run_scenario_a" <<EOF
+failure	feat(070): thing (#701)	shaA1	API tests
+EOF
+run_scenario "$run_scenario_a"
+got="$(status_of "$scenario_tsv" 070)"
+if [ "$got" != needs-fix ]; then
+  echo "FAIL: scenario A: story 070 status=$got, want needs-fix"; fail=1
+fi
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario A: an id=main row exists but a story was blamed"; fail=1
+fi
+
+# B: red run on a bookkeeping commit, with a green story merge further back
+# in the same streak -- no story is blamed (the bookkeeping commit merged no
+# PR), and a standalone main/main-red row names the commit and job.
+run_scenario_b="$WORK/main_runs_b.tsv"
+cat > "$run_scenario_b" <<EOF
+failure	team(architect): plan 999	shaB1	API tests
+success	feat(071): thing (#711)	shaB2	API tests
+EOF
+run_scenario "$run_scenario_b"
+got="$(status_of "$scenario_tsv" 071)"
+if [ "$got" = needs-fix ]; then
+  echo "FAIL: scenario B: story 071 wrongly blamed (status=needs-fix) for a bookkeeping commit's red run"; fail=1
+fi
+where="$(main_row_where "$scenario_tsv")"
+case "$where" in
+  shaB1*) ;;
+  *) echo "FAIL: scenario B: id=main row missing or wrong (where=[$where])"; fail=1 ;;
+esac
+
+# C: newest run is on a plan-doc (bookkeeping) commit, but an older run in
+# the same unbroken failure streak sits on a story's own merge -- that story
+# is blamed (the FIRST red run, not the latest), and no main/main-red row.
+run_scenario_c="$WORK/main_runs_c.tsv"
+cat > "$run_scenario_c" <<EOF
+failure	team(architect): plan 888	shaC1	API tests
+failure	feat(072): thing (#721)	shaC2	API tests
+success	old green baseline	shaC3	API tests
+EOF
+run_scenario "$run_scenario_c"
+got="$(status_of "$scenario_tsv" 072)"
+if [ "$got" != needs-fix ]; then
+  echo "FAIL: scenario C: story 072 status=$got, want needs-fix (the first red run in the streak, not the latest)"; fail=1
+fi
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario C: an id=main row exists but a story (072) was blamed"; fail=1
+fi
+
+# D: the newest run is green, even though older runs in the list failed --
+# main is not red at all.
+run_scenario_d="$WORK/main_runs_d.tsv"
+cat > "$run_scenario_d" <<EOF
+success	something fine	shaD1	API tests
+failure	feat(999): ignored	shaD2	API tests
+EOF
+run_scenario "$run_scenario_d"
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario D: an id=main row exists but the newest run was green"; fail=1
+fi
+for id in 070 071 072 073; do
+  got="$(status_of "$scenario_tsv" "$id")"
+  if [ "$got" = needs-fix ]; then
+    echo "FAIL: scenario D: story $id wrongly needs-fix when the newest main run is green"; fail=1
+  fi
+done
+
+# E: a cancelled run in the middle of the streak neither ends it nor becomes
+# the answer -- the story merge further back still gets blamed.
+run_scenario_e="$WORK/main_runs_e.tsv"
+cat > "$run_scenario_e" <<EOF
+failure	team(architect): plan 777	shaE1	API tests
+cancelled		shaE2	API tests
+failure	feat(073): thing (#731)	shaE3	API tests
+success	baseline	shaE4	API tests
+EOF
+run_scenario "$run_scenario_e"
+got="$(status_of "$scenario_tsv" 073)"
+if [ "$got" != needs-fix ]; then
+  echo "FAIL: scenario E: story 073 status=$got, want needs-fix (a cancelled run must not break the streak)"; fail=1
+fi
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario E: an id=main row exists but a story (073) was blamed"; fail=1
+fi
+
+# F (review round 1): the newest run has not completed yet (empty
+# conclusion -- still queued or in progress) and an older run in the same
+# streak is a genuine, still-unresolved failure. An in-progress newest run is
+# not proof main is green; it must not mask a real red streak underneath it.
+run_scenario_f="$WORK/main_runs_f.tsv"
+printf '\tin progress run\tshaF1\tAPI tests\nfailure\tfeat(074): thing (#741)\tshaF2\tAPI tests\nsuccess\tbaseline\tshaF3\tAPI tests\n' > "$run_scenario_f"
+run_scenario "$run_scenario_f"
+got="$(status_of "$scenario_tsv" 074)"
+if [ "$got" != needs-fix ]; then
+  echo "FAIL: scenario F: story 074 status=$got, want needs-fix (an in-progress newest run must not hide an older unresolved failure)"; fail=1
+fi
+if [ -n "$(main_row_where "$scenario_tsv")" ]; then
+  echo "FAIL: scenario F: an id=main row exists but a story (074) was blamed"; fail=1
+fi
+
+if [ "$fail" -eq 0 ]; then
+  echo "ok — board_test.sh: 6/6 story-051 red-main-attribution scenarios (A-F: direct story blame, bookkeeping-with-no-PR gets a main row, first-red-not-latest, green-newest-means-nothing-red, cancelled-mid-streak doesn't break it, in-progress-newest doesn't hide an older red)"
+else
+  echo "--- story-051 fixtures failed; full status --tsv for debugging ---"
+  printf '%s\n' "$scenario_tsv"
+fi
+
 exit "$fail"
