@@ -131,7 +131,28 @@ PULL() {
   # GitHub mirror cannot see -- an issue the mirror closes for other reasons
   # (a bulk close, a stale automation) must not un-finish it. Fetched once,
   # like PUSH already does, not once per issue.
-  local board_tsv="$( { "$HERE/status" --tsv 2>/dev/null || true; } | cut -f1,2 )"
+  #
+  # Review round 1: a rate-limited or otherwise degraded `gh` inside this
+  # nested `status --tsv` call does not make it fail or come back empty --
+  # `bin/status` is designed to degrade gracefully and still print a row per
+  # story (an `unknown`/`planned` status it made its best guess at, never
+  # `done`, since a merged PR cannot be confirmed without `gh`). Reading that
+  # as "board says not done" would reintroduce this exact story's bug via a
+  # `gh` hiccup instead of a bulk sync. `bin/status` already announces this
+  # degradation on stderr ("warning: gh ...", "warning: git fetch failed"),
+  # so that -- not "is the tsv non-empty" -- is the real signal: if it fired,
+  # the board could not be trusted this run, and no `status: closed` is
+  # written at all, board-wide, until it stops firing.
+  local board_stderr_f="$(mktemp)"
+  local board_tsv="$("$HERE/status" --tsv 2>"$board_stderr_f" | cut -f1,2)"
+  local board_ok=1
+  if [ -z "$board_tsv" ] || grep -qE '^warning: (gh |git fetch failed)' "$board_stderr_f"; then
+    board_ok=0
+  fi
+  rm -f "$board_stderr_f"
+  if [ "$board_ok" -eq 0 ]; then
+    say "pull: could not read the board reliably (gh degraded) — leaving every status alone this run"
+  fi
   local tsv_f="$(mktemp)"
   gh issue list --repo "$REPO" --label story --state all --limit 500 \
     --json number,title,state --jq '.[] | [.number,.title,.state] | @tsv' > "$tsv_f" 2>/dev/null \
@@ -155,13 +176,15 @@ PULL() {
     cur="$(fm "$path" status)"
     bstatus="$(printf '%s\n' "$board_tsv" | awk -v id="$id" -F'\t' '$1==id {print $2; exit}')"
     if [ "$state0" = "CLOSED" ]; then
-      if [ "$bstatus" = "done" ]; then
+      if [ "$board_ok" -eq 0 ]; then
+        : # already announced once above; do not touch this story's status
+      elif [ "$bstatus" = "done" ]; then
         say "pull: #$n is closed on GitHub because $id is done — left alone"
       elif [ "$cur" != "closed" ] && [ "$cur" != "cancelled" ]; then
         fm_write "$path" status closed "GH closed #$n -> $id marked closed"
         changed=1
       fi
-    elif [ "$state0" = "OPEN" ] && { [ "$cur" = "closed" ] || [ "$cur" = "cancelled" ]; }; then
+    elif [ "$board_ok" -eq 1 ] && [ "$state0" = "OPEN" ] && { [ "$cur" = "closed" ] || [ "$cur" = "cancelled" ]; }; then
       fm_write "$path" status "" "GH reopened #$n -> $id status cleared"
       changed=1
     fi

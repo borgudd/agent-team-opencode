@@ -14,6 +14,9 @@
 #     (the dedup marker must actually match what got written).
 #   - the 2026-09-14 shape (several closed-issue-on-done stories, several
 #     null comments, all in one pull) leaves every one of them untouched.
+#   - a degraded `gh` inside the nested `status --tsv` call (review round 1)
+#     leaves every status alone, board-wide, rather than reading "board
+#     could not tell" as "board says not done."
 #
 # Run with: bash tests/story_pull_test.sh
 set -uo pipefail
@@ -27,7 +30,10 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/shim" "$WORK/comments"
 cat > "$WORK/shim/gh" <<'SHIM'
 #!/usr/bin/env bash
-if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  [ "${GH_SHIM_AUTH_FAIL:-0}" = "1" ] && exit 1
+  exit 0
+fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
   if [ -n "${GH_SHIM_PRS:-}" ] && [ -f "$GH_SHIM_PRS" ]; then cat "$GH_SHIM_PRS"; else echo ""; fi
   exit 0
@@ -87,6 +93,11 @@ add_story 096 null-comment-a "Fixture: null comment A" 943
 add_story 099 null-comment-b "Fixture: null comment B" 944
 # 097: open issue, a real last comment -- one note, then dedup on a second pull.
 add_story 097 real-comment "Fixture: real comment" 945
+# 100: PR merged (done), closed issue, but this pull run's nested `status
+# --tsv` call sees a degraded `gh` (review round 1) -- must be left alone
+# too, for a different reason than 094/098: the board could not be trusted
+# this run at all, not "the board confirmed done."
+add_story 100 degraded-board "Fixture: done story, degraded gh mid-pull" 946
 
 git add .team
 git commit -q -m "fixture stories"
@@ -114,6 +125,9 @@ export GH_SHIM_ISSUES="$ISSUES_FILE"
 : > "$WORK/comments/944"
 # 945: a real comment with a body and a known author.
 printf '2026-09-01T00:00:00Z alice Please double check the numbers.\n' > "$WORK/comments/945"
+# 946: irrelevant -- story 100's pull run never gets past the degraded-board
+# check to look at comments.
+: > "$WORK/comments/946"
 
 PRS_FILE="$WORK/prs.tsv"
 cat > "$PRS_FILE" <<EOF
@@ -197,8 +211,35 @@ check_file_unchanged 098 "done story B (2nd pull)"
 check_no_note 096
 check_no_note 099
 
+# 5. Review round 1: a degraded `gh` inside the nested `status --tsv` call
+# must not read as "board says not done" -- that would reintroduce this
+# story's exact bug via a `gh` hiccup instead of a bulk mirror sync. Story
+# 100's issue is closed and its PR really is merged, but this pull run's `gh
+# auth status` fails (as it would under real rate-limiting), so `bin/status`
+# degrades and warns on stderr -- PULL must leave every status alone this
+# run, board-wide, and say so once.
+ISSUES_FILE2="$WORK/issues2.tsv"
+cat > "$ISSUES_FILE2" <<EOF
+946	100 · Fixture: done story, degraded gh mid-pull	CLOSED
+EOF
+PRS_FILE2="$WORK/prs2.tsv"
+cat > "$PRS_FILE2" <<EOF
+feat/100-degraded-board	883	MERGED	1
+EOF
+
+export GH_SHIM_ISSUES="$ISSUES_FILE2" GH_SHIM_PRS="$PRS_FILE2" GH_SHIM_AUTH_FAIL=1
+out3="$("$STORY_BIN" pull 2>&1)"
+rc3=$?
+unset GH_SHIM_AUTH_FAIL
+
+[ "$rc3" -eq 0 ] || { echo "FAIL: bin/story pull exited $rc3 during the degraded-board case"; echo "$out3"; fail=1; }
+check_file_unchanged 100 "done story, degraded board"
+if ! printf '%s\n' "$out3" | grep -qF "pull: could not read the board reliably"; then
+  echo "FAIL: pull did not announce the degraded board"; fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "ok — story_pull_test.sh: 6/6 checks (done+closed left alone x2; open+closed -> status:closed; null-comment x2 -> no note; real comment -> one note, dedup on re-pull)"
+  echo "ok — story_pull_test.sh: 7/7 checks (done+closed left alone x2; open+closed -> status:closed; null-comment x2 -> no note; real comment -> one note, dedup on re-pull; degraded gh -> every status left alone, announced once)"
 else
   echo "--- story_pull_test.sh failures above; pull output for debugging ---"
   echo "--- first pull ---"; printf '%s\n' "$out1"
