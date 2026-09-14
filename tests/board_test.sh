@@ -573,4 +573,102 @@ else
   printf '%s\n' "$tsv3"
 fi
 
+# --- Story 067: a merged PR is `done` before plan/note timestamps or a
+# mirror-written `status: closed` are even asked, so a `bin/story pull` sync
+# cannot move a finished story backwards. Four cases: merged + stale note ->
+# done, not needs-replan; merged + mirror `status: closed` -> done, not
+# closed; merged + `status: cancelled` -> cancelled (a human's word still
+# outranks done); open PR + stale note -> needs-replan, unchanged (067 only
+# reorders the merged-PR check, it does not touch this rule for open PRs).
+
+note_fail=0
+add_story 090 merged-stale-note "Fixture: merged PR, note newer than plan"
+add_story 091 merged-mirror-closed "Fixture: merged PR, mirror wrote status: closed"
+add_story 092 merged-mirror-cancelled "Fixture: merged PR, mirror wrote status: cancelled"
+add_story 093 open-stale-note "Fixture: open PR, note newer than plan (unchanged)"
+git add .team
+GIT_COMMITTER_DATE="@$T0" GIT_AUTHOR_DATE="@$T0" git commit -q -m "story 067 fixture stories + plans"
+git push -q origin main
+
+# 090: a note committed after the plan would normally mean needs-replan --
+# the merged PR must win regardless of that timestamp.
+mkdir -p .team/notes
+echo "stale note" > .team/notes/090-merged-stale-note.md
+git add .team/notes/090-merged-stale-note.md
+GIT_COMMITTER_DATE="@$((T0 + 500))" GIT_AUTHOR_DATE="@$((T0 + 500))" git commit -q -m "note 090"
+git push -q origin main
+
+# 091: the mirror wrote status: closed onto a story whose PR is actually
+# merged (the 2026-09-14 shape) -- done must win, not the mirror's closed.
+cat > .team/backlog/091-merged-mirror-closed.md <<EOF
+---
+id: 091
+title: Fixture: merged PR, mirror wrote status: closed
+status: closed
+---
+Fixture story.
+EOF
+git add .team/backlog/091-merged-mirror-closed.md
+git commit -q -m "mirror closed 091"
+git push -q origin main
+
+# 092: a human-cancelled story whose PR nonetheless shows merged -- cancelled
+# is a human's word and still outranks done.
+cat > .team/backlog/092-merged-mirror-cancelled.md <<EOF
+---
+id: 092
+title: Fixture: merged PR, mirror wrote status: cancelled
+status: cancelled
+---
+Fixture story.
+EOF
+git add .team/backlog/092-merged-mirror-cancelled.md
+git commit -q -m "mirror cancelled 092"
+git push -q origin main
+
+# 093: unchanged regression -- an OPEN PR (never merged) with a note newer
+# than its plan is still needs-replan; 067 only reorders the merged-PR check.
+mkdir -p .team/notes
+echo "stale note" > .team/notes/093-open-stale-note.md
+git add .team/notes/093-open-stale-note.md
+GIT_COMMITTER_DATE="@$((T0 + 500))" GIT_AUTHOR_DATE="@$((T0 + 500))" git commit -q -m "note 093"
+git push -q origin main
+
+PRS4_FILE="$WORK/prs4.tsv"
+cat > "$PRS4_FILE" <<EOF
+feat/090-merged-stale-note	901	MERGED	1
+feat/091-merged-mirror-closed	902	MERGED	1
+feat/092-merged-mirror-cancelled	903	MERGED	1
+feat/093-open-stale-note	904	OPEN	1
+EOF
+
+export GH_SHIM_PRS="$PRS4_FILE" GH_SHIM_RUNS="" GH_SHIM_MAIN_RUN=""
+tsv4="$("$STATUS_BIN" --tsv)"
+
+check4() {  # id expected_status
+  local id="$1" want_status="$2"
+  local row got_status
+  row="$(printf '%s\n' "$tsv4" | awk -F'\t' -v id="$id" '$1==id')"
+  if [ -z "$row" ]; then
+    echo "FAIL: no row for story $id"; note_fail=1; return
+  fi
+  got_status="$(printf '%s' "$row" | cut -f2)"
+  if [ "$got_status" != "$want_status" ]; then
+    echo "FAIL: story $id status=$got_status, want $want_status (row: $row)"; note_fail=1
+  fi
+}
+
+check4 090 done
+check4 091 done
+check4 092 cancelled
+check4 093 needs-replan
+
+if [ "$note_fail" -eq 0 ]; then
+  echo "ok — board_test.sh: 4/4 story-067 merged-cannot-unfinish checks (merged + stale note -> done; merged + mirror closed -> done; merged + mirror cancelled -> cancelled; open PR + stale note -> needs-replan, unchanged)"
+else
+  echo "--- story-067 fixtures failed; full status --tsv for debugging ---"
+  printf '%s\n' "$tsv4"
+  fail=1
+fi
+
 exit "$fail"
