@@ -43,8 +43,6 @@ Nobody edits a status field. The board (`$TEAM/../bin/status`, or `./team status
 | branch exists, no PR | `in-progress` — Coder |
 | PR open, no review file yet, or code commits after the last review | `in-review` — Reviewer's turn |
 | `.team/reviews/NNN-*` on the PR branch says `verdict: request-changes` | `changes-requested` — Coder's turn |
-
-Which of the review or the last work commit is "newer" is decided by commit ancestry, not committer date — a rebase rewrites every commit's committer date to the moment of the rebase, so a Coder's fix that followed a review can land in the same epoch second as the review itself; timestamps are only the fallback when neither commit is an ancestor of the other (unrelated histories).
 | it says `verdict: approve` | `approved` — PO merges |
 | PR merged | `done` |
 | the PR is `CONFLICTING` against main | `changes-requested` — Coder's turn, whatever the review says (wins over everything below; a conflicting PR cannot be merged and needs no review to say "rebase") |
@@ -57,6 +55,8 @@ Which of the review or the last work commit is "newer" is decided by commit ance
 | `depends-on:` names a story that does not exist | `dep-missing` — PO fixes the declaration |
 | declared dependencies form a loop (including a story that depends on itself) | `dep-cycle` — PO fixes the declaration |
 | `not-before:` does not parse as `YYYY-MM-DD` | `date-invalid` — PO fixes the declaration |
+
+Which of the review or the last work commit is "newer" is decided by commit ancestry, not committer date — a rebase rewrites every commit's committer date to the moment of the rebase, so a Coder's fix that followed a review can land in the same epoch second as the review itself; timestamps are only the fallback when neither commit is an ancestor of the other (unrelated histories).
 
 A story or plan can declare `depends-on: 001, 002` — one line, comma-separated, three-digit IDs. Only `done` satisfies a dependency; a dependency that GitHub cannot be queried for, or that is itself `blocked`, counts as not done, so a blocked story never degrades into work. A dependency discovered while planning goes in the plan's frontmatter (never by editing the story).
 
