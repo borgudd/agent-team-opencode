@@ -8,12 +8,16 @@
 #   in-progress        remote branch exists, no PR                → coder
 #   unknown            branch exists but GitHub could not be asked → nobody (look, don't work)
 #   in-review          PR open, no review yet or new commits since → reviewer
-#   changes-requested  review file on the branch says so           → coder
-#   approved           review file on the branch says so           → human (merge)
-#   ci-fails          PR branch's latest run failed, errored, timed out,
-#                     was cancelled, or never ran                     → reviewer
-#   needs-fix         main CI is red and this story merged it         → coder
-#   approved          review file on the branch says so               → po (merge)
+#   changes-requested  review file on the branch says so, OR the PR is
+#                      CONFLICTING against main (wins over everything else,
+#                      whatever the review says)                      → coder
+#   ci-fails           PR branch's latest run failed, errored, timed out,
+#                      was cancelled, or never ran -- unless the current
+#                      review already says request-changes, in which case
+#                      it stays changes-requested (the Coder needs no second
+#                      trip through the Reviewer to hear "still red")  → reviewer
+#   needs-fix          main CI is red and this story merged it         → coder
+#   approved           review file on the branch says so               → po (merge)
 # Rows in an actionable state whose last activity is older than STALE_HOURS
 # (default 24) get a "(stale Nh)" marker on the title — the board's escape
 # valve, so no story can quietly stall in a lane.
@@ -67,8 +71,9 @@ prs=""
 if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
   gh_why="no gh"
   echo "warning: gh missing, not authenticated, or no network — PR states unknown; branches show as unknown" >&2
-elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName,updatedAt \
-            --jq '.[] | [.headRefName, .number, .state, ((now - (.updatedAt|fromdateiso8601)) / 3600 | floor)] | @tsv' 2>/dev/null)"; then
+elif prs="$(gh pr list --state all --limit 500 --json number,state,headRefName,updatedAt,mergeable \
+            --jq '.[] | [.headRefName, .number, .state, ((now - (.updatedAt|fromdateiso8601)) / 3600 | floor),
+                         (if .mergeable=="CONFLICTING" then 1 else "" end)] | @tsv' 2>/dev/null)"; then
   have_gh=1
 else
   # The distinction that matters. A failed query and a repo with no PRs both
@@ -218,12 +223,12 @@ while IFS= read -r story; do
     status=unknown; next="—"; where="$branch ($gh_why)"
     bct="$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)"; [ "$bct" -gt 0 ] 2>/dev/null && age_v=$(( (now - bct) / 3600 ))
   else
-    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3"\t"$4; exit}')"
+    pr="$(printf '%s\n' "$prs" | awk -F'\t' -v b="$branch" '$1==b {print $2"\t"$3"\t"$4"\t"$5; exit}')"
     if [ -z "$pr" ]; then
       status=in-progress; next=coder; where="$branch"
       bct="$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)"; [ "$bct" -gt 0 ] 2>/dev/null && age_v=$(( (now - bct) / 3600 ))
     else
-      IFS=$'\t' read -r num state prh <<< "$pr"
+      IFS=$'\t' read -r num state prh conflict <<< "$pr"
       age_v="$prh"
       where="#$num"
       case "$state" in
@@ -250,13 +255,34 @@ while IFS= read -r story; do
           else
             status=in-review; next=reviewer
           fi
-      case " $redprs " in
-        *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI red)" ;;
-      esac
-      if [ "$status" != ci-fails ]; then
-        case " $stale_prs " in
-          *" $branch "*) status=ci-fails; next=reviewer; where="#$num (CI stalled)" ;;
-        esac
+      # Story 050: three rules, in this order.
+      #  1. CONFLICTING wins over everything -- a conflicting PR cannot be
+      #     merged and needs no review to say "rebase", whatever the review
+      #     file or CI says.
+      #  2. Otherwise, red or stalled CI with a *current* request-changes
+      #     review (the case above already produced changes-requested, which
+      #     only happens when that review is newer than the last work commit)
+      #     stays with the Coder -- they already have a must-fix list; naming
+      #     the CI reason in WHERE is enough, no second trip through the
+      #     Reviewer to hear "still red".
+      #  3. Red or stalled otherwise (approved, in-review, no review, or a
+      #     stale review) is exactly today's ci-fails/reviewer.
+      if [ "$conflict" = "1" ]; then
+        status=changes-requested; next=coder; where="#$num (conflict)"
+      else
+        is_red=0; is_stalled=0
+        case " $redprs " in *" $branch "*) is_red=1 ;; esac
+        if [ "$is_red" -eq 0 ]; then
+          case " $stale_prs " in *" $branch "*) is_stalled=1 ;; esac
+        fi
+        if [ "$is_red" -eq 1 ] || [ "$is_stalled" -eq 1 ]; then
+          reason="CI stalled"; [ "$is_red" -eq 1 ] && reason="CI red"
+          if [ "$status" = changes-requested ]; then
+            where="#$num ($reason)"
+          else
+            status=ci-fails; next=reviewer; where="#$num ($reason)"
+          fi
+        fi
       fi
       ;;
       esac
