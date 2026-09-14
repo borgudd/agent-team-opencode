@@ -156,7 +156,7 @@ while IFS=$'\t' read -r n target nid; do
     if [ "$DRYRUN" -eq 0 ]; then
       iid="$(gql 'mutation($p: ID!, $c: ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"c\":\"$nid\"}" '.data.addProjectV2ItemById.item.id')"
       if [ -n "$iid" ] && [ "$iid" != null ] && [ "$target" != planned ]; then
-        gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: ID!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
+        gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: String!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
         sleep 1
       fi
     fi
@@ -164,7 +164,7 @@ while IFS=$'\t' read -r n target nid; do
   elif [ "$cur" != "$target" ]; then
     say "update #$n [${cur:-empty} -> $target]"
     if [ "$DRYRUN" -eq 0 ] && [ -n "$oid" ]; then
-      gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: ID!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
+      gql 'mutation($p: ID!, $i: ID!, $f: ID!, $o: String!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }' "{\"p\":\"$LA_PROJECT_ID\",\"i\":\"$iid\",\"f\":\"$STATE_FIELD_ID\",\"o\":\"$oid\"}" '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
       sleep 1
     fi
     updated=$((updated+1))
