@@ -17,6 +17,10 @@ The team itself is a git submodule pinned to a version; the project's own files 
 
 Each role works in its own clone of this repo, in its own terminal, unattended: Architect, Coder and Reviewer sit in a loop on `bin/wait-for <role>`, which returns the moment the board has something in their lane. Nobody looks at anyone else's working directory. **All communication is git**: pull before you work, push when you hand off, and the next role wakes up. The human talks to the PO; the PO merges approved story PRs, and the human merges main-critical work.
 
+## Talking to the team
+
+The PO is the human's counterpart: product questions, status, and anything you want turned into work go there. Technical research and live-ops investigations — launchd, cron, a dead credential, a red deploy, an EIO — go to the **Architect**; the PO hands them off if they reach it first, and does not run the debugging session itself. Every pane runs a short `wait-for` and returns to its prompt roughly every 90 seconds, so a message you type lands within a minute or two, never behind a long block. If a role is mid-pass, press **Esc** in its pane to interrupt and take the message at once.
+
 ## How work flows
 
 ```
