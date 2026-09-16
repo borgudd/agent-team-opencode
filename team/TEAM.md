@@ -19,7 +19,7 @@ Each role works in its own clone of this repo, in its own terminal, unattended: 
 
 ## Talking to the team
 
-The PO is the human's counterpart: product questions, status, and anything you want turned into work go there. Technical research and live-ops investigations — launchd, cron, a dead credential, a red deploy, an EIO — go to the **Architect**; the PO hands them off if they reach it first, and does not run the debugging session itself. Every pane runs a short `wait-for` and returns to its prompt roughly every 90 seconds, so a message you type lands within a minute or two, never behind a long block. If a role is mid-pass, press **Esc** in its pane to interrupt and take the message at once.
+The PO is the human's counterpart: product questions, status, and anything you want turned into work go there. Technical research and live-ops investigations — launchd, cron, a dead credential, a red deploy, an EIO — go to the **Architect**; the PO hands them off if they reach it first, and does not run the debugging session itself. PO and Architect return to their prompt roughly every 90 seconds, Coder and Reviewer every three minutes — well short of the old nine-minute waits — so a message you type lands quickly, never behind a long block. If a role is mid-pass, press **Esc** in its pane to interrupt and take the message at once.
 
 ## How work flows
 
