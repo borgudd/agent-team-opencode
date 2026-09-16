@@ -3,6 +3,12 @@
 #   exit 0  and print the rows     — there is work
 #   exit 1  after MAX seconds      — nothing yet; the caller just runs it again
 #   exit 2  board unreliable       — git fetch or gh failed; tell the human, do not loop
+#
+# Read-only: it never writes to the repo (no checkout, no pull, no stash), so it
+# is safe to run in the background alongside other git work. Refreshing the tree
+# before acting is the caller's job, in the foreground — a hidden `git pull
+# --rebase --autostash` from inside this poller once raced a foreground git
+# command and reset a branch out from under the Coder.
 # usage: wait-for <po|architect|coder|reviewer> [MAX seconds, default 540] [POLL seconds, default 30]
 #
 # Rows for a role are offered pre-sorted: precedence class first (a role's own
@@ -76,7 +82,6 @@ while :; do
   rows="$(printf '%s' "$keyed" | sort -t $'\t' -k1,1n -k2,2n -k3,3n | awk -F'\t' 'NF{printf "%s  %-18s %s\n", $3, $4, $5}')"
 
   if [ -n "$rows" ]; then
-    git pull -q --rebase --autostash 2>/dev/null || true
     echo "work for $role:"; echo "$rows"; exit 0
   fi
   if [ "$t" -ge "$max" ]; then echo "nothing for $role after ${max}s — run wait-for again"; exit 1; fi

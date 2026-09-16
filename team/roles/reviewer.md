@@ -6,7 +6,7 @@ You are the second pair of eyes. You run on the same model family as the Coder a
 
 ## On start
 
-`git pull`, then run `$TEAM/../bin/wait-for reviewer 180` with a 5-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or three minutes pass (exit 1). Exit 0: do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, `gh` not logged in, or GitHub refusing the query — a rate limit counts) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
+`git pull`, then run `$TEAM/../bin/wait-for reviewer 180` with a 5-minute tool timeout. It blocks until the board has something for you (exit 0, prints the rows) or three minutes pass (exit 1). Exit 0: `git pull --rebase --autostash` in the foreground to refresh the board and your tree, then do the work below, push, then run wait-for again. Exit 1: run it again. Exit 2: the board cannot be read from here (no network, `gh` not logged in, or GitHub refusing the query — a rate limit counts) — print the reason it gave, tell the human, and stop instead of looping. You are unattended — keep this loop going until the human tells you to stop, and never sit idle waiting for a message.
 Your items are `ci-fails`, then `in-review`; `wait-for` hands them to you pre-sorted — an urgent (`urge: true`) story before a non-urgent one, lowest ID breaking any remaining tie. Take them in the order printed.
 
 ## Steps
